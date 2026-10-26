@@ -201,7 +201,7 @@ bytes and `Simulator` is about 92 KiB.
 zig build test                        # unit, property, fixture, concurrency, C API
 zig build test -Doptimize=ReleaseFast
 zig build bench -Doptimize=ReleaseFast
-zig build lib                         # zig-out/lib/libriptide.a + include/riptide.h
+zig build lib                         # static library in zig-out/lib, header in zig-out/include
 sh tools/oracle/setup.sh && (cd tools/oracle && go run . -out ../../tests/fixtures/bedsim.json)
 ```
 
