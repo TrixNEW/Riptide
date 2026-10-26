@@ -72,6 +72,9 @@ type BlockSpec struct {
 	Barrier       bool        `json:"barrier,omitempty"`
 	Bubble        string      `json:"bubble,omitempty"`
 	BubbleSurface *bool       `json:"bubble_surface,omitempty"`
+	// Dynamic "scaffold" keeps only the top slab, and only while the player
+	// stands at or above it without descending through.
+	Dynamic string `json:"dynamic,omitempty"`
 }
 
 // Fill sets every cell in the inclusive box to Block. Later fills win.
@@ -286,6 +289,37 @@ func (w *fixtureWorld) GetNearbyBBoxes(aabb cube.BBox32) []cube.BBox32 {
 }
 
 func (*fixtureWorld) IsChunkLoaded(int32, int32) bool { return true }
+
+func (w *fixtureWorld) GetMovementBBoxes(aabb cube.BBox32, ctx bedsim.MovementCollisionContext) []cube.BBox32 {
+	min, max := aabb.Min(), aabb.Max()
+	x0, x1 := int(math.Floor(float64(min[0]))), int(math.Floor(float64(max[0])))
+	y0, y1 := int(math.Floor(float64(min[1])))-1, int(math.Floor(float64(max[1])))
+	z0, z1 := int(math.Floor(float64(min[2]))), int(math.Floor(float64(max[2])))
+	var out []cube.BBox32
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			for y := y0; y <= y1; y++ {
+				pos := cube.Pos{x, y, z}
+				origin := mgl32.Vec3{float32(x), float32(y), float32(z)}
+				boxes := w.BlockCollisions(pos)
+				if s := w.spec(pos); s != nil && s.Dynamic == "scaffold" {
+					boxes = nil
+					if !ctx.DescendThroughBlock && ctx.Position[1] >= float32(y+1)-1e-5 {
+						boxes = []cube.BBox32{cube.Box32(0, 0.875, 0, 1, 1, 1)}
+					}
+				}
+				for _, b := range boxes {
+					t := b.Translate(origin)
+					if bedsim.BBHasZeroVolume(t) || !t.IntersectsWith(aabb) {
+						continue
+					}
+					out = append(out, t)
+				}
+			}
+		}
+	}
+	return out
+}
 
 func (w *fixtureWorld) Liquid(pos cube.Pos) (world.Liquid, bool) {
 	s := w.spec(pos)

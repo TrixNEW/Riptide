@@ -41,6 +41,7 @@ var (
 	berry     = passable(Sem{Friction: 0.6, AccelMul: 1, Inside: "sweet_berry_bush"})
 	powder    = passable(Sem{Friction: 0.6, AccelMul: 1, Inside: "powder_snow", Traversal: "powder_snow"})
 	scaffold  = shaped(Sem{Friction: 0.6, AccelMul: 1, Traversal: "scaffolding"}, [6]F32{0, 0.875, 0, 1, 1, 1})
+	dynScaff  = func() BlockSpec { b := scaffold; b.Dynamic = "scaffold"; return b }()
 	water     = liquid("water", 0, false)
 	lava      = liquid("lava", 0, false)
 	air       = BlockSpec{Kind: "air", Sem: sem()}
@@ -204,6 +205,9 @@ func handwritten() []Scenario {
 		{Name: "vine_fall", World: []Fill{floor(8, stone), box3(0, 0, 0, 0, 12, 0, vine)}, State: spawn(0.5, 10, 0.5), Inputs: rep(40, InputSpec{})},
 		{Name: "scaffold_climb_descend", World: []Fill{floor(8, stone), box3(0, 0, 0, 0, 5, 0, scaffold)}, State: grounded(0.5, 0, 0.5),
 			Inputs: cat(rep(25, InputSpec{Flags: []string{"jumping"}}), rep(30, InputSpec{Flags: []string{"sneak_down", "sneaking"}}))},
+		{Name: "scaffold_dynamic", World: []Fill{floor(8, stone), box3(0, 0, 0, 0, 3, 0, dynScaff), box3(1, 0, 0, 2, 0, 0, dynScaff)}, State: grounded(2.5, 1, 0.5),
+			Inputs: cat(withYaw(rep(12, fwd()), func(int) float32 { return 90 }), rep(30, InputSpec{Flags: []string{"sneak_down", "sneaking"}}),
+				rep(30, InputSpec{Flags: []string{"jumping"}}), rep(10, InputSpec{}))},
 		{Name: "cobweb_fall", World: []Fill{floor(8, stone), box3(0, 0, 0, 0, 3, 0, web)}, State: spawn(0.5, 6, 0.5), Inputs: rep(60, fwd())},
 		{Name: "cobweb_weaving", World: []Fill{floor(8, stone), at(0, 0, 0, web), at(0, 1, 0, web)}, State: weave, Inputs: rep(30, fwd())},
 		{Name: "berry_bush", World: []Fill{floor(8, stone), box3(-1, 0, 1, 1, 0, 6, berry)}, State: grounded(0.5, 0, 0.5), Inputs: rep(40, fwd("start_sprinting"))},
@@ -286,7 +290,7 @@ func handwritten() []Scenario {
 func randomScenarios(seed uint64, n int) []Scenario {
 	rng := rand.New(rand.NewPCG(seed, 0x5eed))
 	floors := []BlockSpec{stone, stone, stone, ice, blueIce, slime, soulSand, honey}
-	obstacles := []BlockSpec{stone, slab, topSlab, stairs, fence, wallPost, carpet, web, berry, ladder, vine, bed, water, liquid("water", 3, false), liquid("water", 1, true), powder, scaffold}
+	obstacles := []BlockSpec{stone, slab, topSlab, stairs, fence, wallPost, carpet, web, berry, ladder, vine, bed, water, liquid("water", 3, false), liquid("water", 1, true), powder, scaffold, dynScaff}
 	out := make([]Scenario, 0, n)
 	for i := range n {
 		world := []Fill{floor(12, floors[rng.IntN(len(floors))])}

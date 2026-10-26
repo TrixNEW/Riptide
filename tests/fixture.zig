@@ -28,6 +28,7 @@ pub const BlockSpec = struct {
     barrier: bool = false,
     bubble: []const u8 = "",
     bubble_surface: ?bool = null,
+    dynamic: []const u8 = "",
 };
 
 pub const Fill = struct { from: [3]i32, to: [3]i32, block: BlockSpec };
@@ -143,6 +144,7 @@ pub fn buildWorld(arena: std.mem.Allocator, fills: []const Fill) !rt.MapWorld {
             .flow_barrier = spec.barrier,
             .bubble = try enumOf(rt.BubbleColumn, spec.bubble),
             .bubble_surface = spec.bubble_surface,
+            .dynamic_shape = spec.dynamic.len != 0,
         };
         try w.fill(arena, .init(f.from[0], f.from[1], f.from[2]), .init(f.to[0], f.to[1], f.to[2]), b);
     }
@@ -240,6 +242,20 @@ pub fn countMechanics(m: rt.Mechanics) void {
     }
 }
 
+const dynamic_vtable: rt.World.VTable = .{ .block = mapLookup, .dynamic_shape = scaffoldShape };
+
+fn mapLookup(ptr: *anyopaque, pos: rt.BlockPos) ?rt.Block {
+    const w: *rt.MapWorld = @ptrCast(@alignCast(ptr));
+    return w.world().block(pos);
+}
+
+/// Mirror of the oracle's dynamic scaffolding rule.
+fn scaffoldShape(_: *anyopaque, pos: rt.BlockPos, _: *const rt.Block, ctx: *const rt.CollisionContext, out: *rt.ShapeBuffer) void {
+    if (!ctx.descend_through_block and ctx.position.y >= @as(f32, @floatFromInt(pos.y + 1)) - 1e-5) {
+        out.append(.init(0, 0.875, 0, 1, 1, 1));
+    }
+}
+
 /// A scenario converted to simulator types, ready to replay.
 pub const Prepared = struct {
     world: rt.MapWorld,
@@ -255,7 +271,7 @@ pub const Prepared = struct {
     };
 
     pub fn simulator(p: *Prepared) rt.Simulator {
-        return .init(p.world.world(), .{ .policy = .hardened, .sprint_timing = if (p.legacy) .legacy else .modern });
+        return .init(.{ .ptr = &p.world, .vtable = &dynamic_vtable }, .{ .policy = .hardened, .sprint_timing = if (p.legacy) .legacy else .modern });
     }
 
     /// Applies the step's server events, then ticks.
@@ -278,13 +294,15 @@ pub fn prepare(sc: *const Scenario, arena: std.mem.Allocator) !Prepared {
     return .{ .world = try buildWorld(arena, sc.world), .initial = initialState(sc.state), .steps = steps, .legacy = sc.sprint_legacy };
 }
 
+/// Replays `sc` and compares every tick. `verbose` prints the first
+/// divergence and records mechanic coverage, so it must not run concurrently.
 pub fn runScenario(sc: *const Scenario, arena: std.mem.Allocator, verbose: bool) !bool {
     var p = try prepare(sc, arena);
     var sim = p.simulator();
     var state = p.initial;
     for (p.steps, sc.expected, 0..) |*step, e, tick| {
         const r = Prepared.tick(&sim, &state, step);
-        countMechanics(r.mechanics);
+        if (verbose) countMechanics(r.mechanics);
         if (compare(r, &state, e)) |field| {
             if (verbose) {
                 std.debug.print("{s}: tick {d} diverges on {s}\n  got  pos={f} vel={f} mov={f} ground={} outcome={t}\n  want pos={any} vel={any} mov={any} ground={} outcome={s}\n", .{

@@ -733,3 +733,129 @@ test "rounded contact recovery does not erase new obstacles" {
     const r = sim.tick(&s, &.{ .reported_pos = s.pos });
     try testing.expect(r.collide_x and s.penetrated_last_frame);
 }
+
+// Property tests over random worlds and chaotic input.
+
+const shapes = [_][]const AABB{
+    &.{AABB.unit},
+    &.{AABB.init(0, 0, 0, 1, 0.5, 1)},
+    &.{AABB.init(0, 0.5, 0, 1, 1, 1)},
+    &.{ AABB.init(0, 0, 0, 1, 0.5, 1), AABB.init(0, 0.5, 0.5, 1, 1, 1) },
+    &.{AABB.init(0.375, 0, 0.375, 0.625, 1.5, 0.625)},
+    &.{AABB.init(0, 0, 0, 1, 0.0625, 1)},
+    &.{AABB.init(0, 0, 0.8125, 1, 1, 1)},
+};
+
+fn randomBlock(r: std.Random) Block {
+    const semantics = [_]Semantics{ .default, .ice, .slime, .honey_block, .soul_sand, .ladder, .cobweb_block, .sweet_berry_bush, .powder_snow, .scaffolding, .bed };
+    return switch (r.uintLessThan(u8, 10)) {
+        0 => .liquidBlock(.{ .kind = .water, .level = r.int(u3), .falling = r.boolean() }),
+        1 => .liquidBlock(.{ .kind = .lava, .level = r.int(u3) }),
+        2 => .{ .semantics = semantics[r.uintLessThan(usize, semantics.len)] },
+        3 => .{ .liquid = .water_source, .bubble = if (r.boolean()) .up else .down },
+        else => .{
+            .shape = shapes[r.uintLessThan(usize, shapes.len)],
+            .semantics = semantics[r.uintLessThan(usize, semantics.len)],
+            .liquid = if (r.uintLessThan(u8, 6) == 0) Liquid.water_source else null,
+            .flow_barrier = true,
+            .solid_faces = @bitCast(r.int(u4)),
+        },
+    };
+}
+
+const Liquid = world_mod.Liquid;
+
+fn overlapsWorld(map: *MapWorld, box: AABB) bool {
+    var x = math.floorI(box.min.x);
+    while (x <= math.floorI(box.max.x)) : (x += 1) {
+        var y = math.floorI(box.min.y) - 1;
+        while (y <= math.floorI(box.max.y)) : (y += 1) {
+            var z = math.floorI(box.min.z);
+            while (z <= math.floorI(box.max.z)) : (z += 1) {
+                const b = map.world().block(.init(x, y, z)) orelse continue;
+                for (b.shape) |local| {
+                    if (local.translate(BlockPos.init(x, y, z).vec()).intersects(box)) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+fn chaoticInput(r: std.Random) Input {
+    var in: Input = .{
+        .move = .{ .x = r.float(f32) * 2.4 - 1.2, .y = r.float(f32) * 2.4 - 1.2 },
+        .move_is_raw = r.boolean(),
+        .rotation = .{ .pitch = r.float(f32) * 180 - 90, .yaw = r.float(f32) * 720 - 360, .head_yaw = 0 },
+        .flags = @bitCast(r.int(u32) & r.int(u32) & r.int(u32)),
+    };
+    if (r.uintLessThan(u8, 10) == 0) in.item_use_modifier = r.float(f32);
+    switch (r.uintLessThan(u8, 60)) {
+        0 => in.move.x = std.math.nan(f32),
+        1 => in.rotation.yaw = std.math.inf(f32),
+        2 => in.item_use_modifier = 2,
+        else => {},
+    }
+    return in;
+}
+
+test "property: chaotic input never corrupts state or enters geometry" {
+    var prng: std.Random.DefaultPrng = .init(0x52495054);
+    const r = prng.random();
+    var checked: usize = 0;
+    for (0..120) |_| {
+        var map: MapWorld = .{};
+        defer map.deinit(gpa);
+        try map.fill(gpa, .init(-8, -1, -8), .init(8, -1, 8), .full(.default));
+        for (0..60) |_| {
+            try map.put(gpa, .init(r.intRangeAtMost(i32, -6, 6), r.intRangeAtMost(i32, 0, 4), r.intRangeAtMost(i32, -6, 6)), randomBlock(r));
+        }
+        var sim: Simulator = .init(map.world(), .{ .policy = if (r.boolean()) .vanilla else .hardened });
+        var s: State = .{ .pos = .init(r.float(f32) * 4 - 2, r.float(f32) * 4, r.float(f32) * 4 - 2) };
+        s.equipment = .{ .elytra = r.boolean(), .riptide = r.uintAtMost(u8, 3), .leather_boots = r.boolean(), .depth_strider = r.uintAtMost(u8, 3) };
+        for (0..80) |_| {
+            const in = chaoticInput(r);
+            if (r.uintLessThan(u8, 30) == 0) s.queueMotion(.init(r.float(f32) * 2 - 1, r.float(f32) * 2 - 1, r.float(f32) * 2 - 1));
+            s.riptide_ready = r.uintLessThan(u8, 10) == 0;
+            const before = s;
+            const was_inside = overlapsWorld(&map, s.boundingBox());
+            const res = sim.tick(&s, &in);
+            try testing.expect(s.isValid());
+            if (!in.isValid()) {
+                try testing.expectEqual(state_mod.Outcome.invalid_input, res.outcome);
+                try testing.expect(std.meta.eql(before, s));
+                continue;
+            }
+            if (res.outcome == .normal and !was_inside and !res.mechanics.pose_change) {
+                checked += 1;
+                if (overlapsWorld(&map, s.boundingBox())) {
+                    std.debug.print("entered geometry: before={f} after={f} box={f}\n", .{ before.pos, s.pos, s.boundingBox() });
+                    return error.TestEnteredGeometry;
+                }
+            }
+        }
+    }
+    try testing.expect(checked > 5000);
+}
+
+test "property: replays of chaotic input are bit-identical" {
+    var prng: std.Random.DefaultPrng = .init(7);
+    const r = prng.random();
+    var map: MapWorld = .{};
+    defer map.deinit(gpa);
+    try map.fill(gpa, .init(-8, -1, -8), .init(8, -1, 8), .full(.ice));
+    for (0..80) |_| try map.put(gpa, .init(r.intRangeAtMost(i32, -6, 6), r.intRangeAtMost(i32, 0, 3), r.intRangeAtMost(i32, -6, 6)), randomBlock(r));
+    var inputs: [300]Input = undefined;
+    for (&inputs) |*in| in.* = chaoticInput(r);
+    var sim: Simulator = .init(map.world(), .{ .policy = .hardened });
+    var a: [300]replay.Frame = undefined;
+    var b: [300]replay.Frame = undefined;
+    const initial: State = .{ .pos = .init(0.5, 2, 0.5), .equipment = .{ .elytra = true } };
+    _ = replay.run(&sim, initial, &inputs, &a);
+    var other_sim: Simulator = .init(map.world(), .{ .policy = .hardened });
+    _ = replay.run(&other_sim, initial, &inputs, &b);
+    for (a, b) |x, y| {
+        try testing.expect(std.meta.eql(x.state, y.state));
+        try testing.expect(std.meta.eql(x.result, y.result));
+    }
+}
