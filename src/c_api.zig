@@ -145,6 +145,9 @@ const invalid: rt.Block = .{ .semantics = .{ .friction = std.math.nan(f32) } };
 fn lookup(ptr: *anyopaque, pos: rt.BlockPos) ?rt.Block {
     const cs: *CSimulator = @ptrCast(@alignCast(ptr));
     var b: Block = std.mem.zeroes(Block);
+    b.friction = 0.6;
+    b.accel_friction_mul = 1;
+    b.bubble_surface = -1;
     if (cs.world.block.?(cs.world.user, pos.x, pos.y, pos.z, &b) == 0) return null;
     return convert(&b);
 }
@@ -162,7 +165,7 @@ fn convert(b: *const Block) rt.Block {
         }
     }.on;
     return .{
-        .kind = @enumFromInt(b.kind),
+        .kind = @fromBackingInt(@intCast(b.kind)),
         .shape = if (b.shape_len == 0) &.{} else b.shape.?[0..b.shape_len],
         .semantics = .{
             .friction = b.friction,
@@ -172,9 +175,9 @@ fn convert(b: *const Block) rt.Block {
             .cobweb = bit(f, 2),
             .honey = bit(f, 3),
             .carpet = bit(f, 4),
-            .bounce = @enumFromInt(b.bounce),
-            .inside = @enumFromInt(b.inside),
-            .traversal = @enumFromInt(b.traversal),
+            .bounce = @fromBackingInt(@intCast(b.bounce)),
+            .inside = @fromBackingInt(@intCast(b.inside)),
+            .traversal = @fromBackingInt(@intCast(b.traversal)),
         },
         .liquid = if (b.liquid == 0) null else .{
             .kind = if (b.liquid == 1) .water else .lava,
@@ -183,7 +186,7 @@ fn convert(b: *const Block) rt.Block {
         },
         .solid_faces = @bitCast(@as(u4, @truncate(b.solid_faces))),
         .flow_barrier = bit(f, 5),
-        .bubble = @enumFromInt(b.bubble),
+        .bubble = @fromBackingInt(@intCast(b.bubble)),
         .bubble_surface = if (b.bubble_surface < 0) null else b.bubble_surface == 1,
         .dynamic_shape = bit(f, 6),
     };
@@ -296,7 +299,7 @@ export fn rt_state_get(s: *const rt.State, out: *StateView) void {
         .riptide = s.equipment.riptide,
         .leather_boots = @intFromBool(s.equipment.leather_boots),
         .elytra = @intFromBool(s.equipment.elytra),
-        .game_mode = @intFromEnum(s.game_mode),
+        .game_mode = @backingInt(s.game_mode),
         .flying = @intFromBool(s.flying),
         .trust_fly_status = @intFromBool(s.trust_fly_status),
         .no_clip = @intFromBool(s.no_clip),
@@ -354,7 +357,7 @@ export fn rt_state_set(s: *rt.State, v: *const StateView) c_int {
         .leather_boots = v.leather_boots != 0,
         .elytra = v.elytra != 0,
     };
-    n.game_mode = @enumFromInt(v.game_mode);
+    n.game_mode = @fromBackingInt(@intCast(v.game_mode));
     n.flying = v.flying != 0;
     n.trust_fly_status = v.trust_fly_status != 0;
     n.no_clip = v.no_clip != 0;
@@ -406,8 +409,8 @@ export fn rt_tick(cs: *CSimulator, s: *rt.State, in: *const Input, out: *Result)
         .position_delta = r.position_delta,
         .velocity_delta = r.velocity_delta,
         .mechanics = @bitCast(r.mechanics),
-        .outcome = @intFromEnum(r.outcome),
-        .confidence = @intFromEnum(r.confidence()),
+        .outcome = @backingInt(r.outcome),
+        .confidence = @backingInt(r.confidence()),
         .on_ground = @intFromBool(r.on_ground),
         .collide_x = @intFromBool(r.collide_x),
         .collide_y = @intFromBool(r.collide_y),

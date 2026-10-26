@@ -128,6 +128,7 @@ pub fn tick(sim: *Simulator, state: *State, input: *const Input) Result {
     } else {
         state.vel = .zero;
         sim.clearSwimEvidence(state);
+        state.stuck_speed = .zero;
     }
     if (sim.config.sprint_timing == .legacy) {
         applySprint(state, input, true, true);
@@ -1003,7 +1004,7 @@ pub fn cellRange(sim: *const Simulator, q: AABB, below: i32, inclusive_ceil: boo
         .z1 = if (inclusive_ceil) math.ceilI(q.max.z) else math.floorI(q.max.z),
     };
     if (r.x1 < r.x0 or r.y1 < r.y0 or r.z1 < r.z0) return r;
-    const cells = (@as(i64, r.x1) - r.x0 + 1) * (@as(i64, r.y1) - r.y0 + 1) * (@as(i64, r.z1) - r.z0 + 1);
+    const cells = (@as(i128, r.x1) - r.x0 + 1) * (@as(i128, r.y1) - r.y0 + 1) * (@as(i128, r.z1) - r.z0 + 1);
     if (cells > sim.config.max_query_cells) return error.QueryLimit;
     return r;
 }
@@ -1023,9 +1024,9 @@ pub inline fn block(sim: *Simulator, pos: BlockPos) Error!Block {
 /// Ensures every cell overlapped by `q` is loaded.
 pub fn areaKnown(sim: *Simulator, q: AABB) Error!void {
     var r = try sim.cellRange(q, 0, true);
-    r.x1 = @max(r.x0, r.x1 - 1);
-    r.y1 = @max(r.y0, r.y1 - 1);
-    r.z1 = @max(r.z0, r.z1 - 1);
+    r.x1 = @max(r.x0, r.x1 -| 1);
+    r.y1 = @max(r.y0, r.y1 -| 1);
+    r.z1 = @max(r.z0, r.z1 -| 1);
     var x = r.x0;
     while (x <= r.x1) : (x += 1) {
         var z = r.z0;

@@ -873,3 +873,75 @@ test "invalid block semantics are reported, not simulated" {
     try testing.expectEqual(state_mod.Outcome.invalid_world, f.sim.tick(&s, &.{}).outcome);
     try testing.expect(s.pos.eql(before.pos));
 }
+
+test "coordinates at the i32 edge are rejected without overflow" {
+    var f: Fixture = .{};
+    defer f.deinit();
+    f.init(.vanilla);
+    for ([_]Vec3{ .init(-2147483648.0, 64, 0), .init(0, -2147483648.0, 0), .init(2147483520.0, 64, 0) }) |pos| {
+        var s: State = .{ .pos = pos };
+        try testing.expectEqual(state_mod.Outcome.query_limit, f.sim.tick(&s, &.{}).outcome);
+    }
+}
+
+test "huge sweeps do not overflow the cell count" {
+    var f: Fixture = .{};
+    defer f.deinit();
+    f.init(.vanilla);
+    var s: State = .{ .pos = .init(-1.0e9, -1.0e9, 0), .vel = .init(2.0e9, 2.0e9, 0) };
+    try testing.expectEqual(state_mod.Outcome.query_limit, f.sim.tick(&s, &.{}).outcome);
+}
+
+test "an unloaded pose tick clears the queued stuck speed" {
+    var f: Fixture = .{ .map = .{ .loaded_min = .init(-16, -64, -16), .loaded_max = .init(15, 319, 15) } };
+    defer f.deinit();
+    f.init(.vanilla);
+    var s: State = .{ .pos = .init(15.9, 64, 0.5), .stuck_speed = .init(0.25, 0.05, 0.25) };
+    try testing.expectEqual(state_mod.Outcome.unloaded, f.sim.tick(&s, &.{}).outcome);
+    try testing.expect(s.stuck_speed.eql(.zero));
+}
+
+test "divergence search tolerates different lengths" {
+    const r: state_mod.Result = .{ .outcome = .normal };
+    const a = [_]state_mod.Result{ r, r, r };
+    try testing.expectEqual(@as(?usize, 2), replay.firstDivergence(&a, a[0..2], 0));
+    try testing.expectEqual(@as(?usize, null), replay.firstDivergence(&a, &a, 0));
+}
+
+fn extreme(r: std.Random) f32 {
+    const mag = std.math.pow(f32, 10, r.float(f32) * 38.5 - 2);
+    return if (r.boolean()) mag else -mag;
+}
+
+test "property: extreme finite states never crash" {
+    var f: Fixture = .{};
+    defer f.deinit();
+    try f.floor(4, .full(.default));
+    f.init(.hardened);
+    var prng: std.Random.DefaultPrng = .init(0xE87);
+    const r = prng.random();
+    for (0..20_000) |_| {
+        var s: State = .{
+            .pos = .init(extreme(r), extreme(r), extreme(r)),
+            .vel = .init(extreme(r), extreme(r), extreme(r)),
+            .fall_distance = @abs(extreme(r)),
+            .effects = .{ .jump_boost = r.int(i32), .levitation = if (r.boolean()) r.int(i32) else null },
+            .equipment = .{ .swift_sneak = r.int(u8), .depth_strider = r.int(u8), .riptide = r.int(u8) },
+        };
+        if (r.boolean()) s.pos = .init(r.float(f32) * 6 - 3, r.float(f32) * 3, r.float(f32) * 6 - 3);
+        if (r.boolean()) s.queueMotion(.init(extreme(r), extreme(r), extreme(r)));
+        s.riptide_ready = r.boolean();
+        const in: Input = .{
+            .move = .{ .x = extreme(r), .y = extreme(r) },
+            .move_is_raw = r.boolean(),
+            .rotation = .{ .pitch = extreme(r), .yaw = extreme(r) },
+            .reported_pos = .init(extreme(r), extreme(r), extreme(r)),
+            .reported_vel = .init(extreme(r), extreme(r), extreme(r)),
+            .flags = @bitCast(r.int(u32) & 0x3fffffff),
+        };
+        _ = f.sim.tick(&s, &in);
+        try testing.expect(s.isValid());
+        _ = f.sim.tick(&s, &.{});
+        try testing.expect(s.isValid());
+    }
+}

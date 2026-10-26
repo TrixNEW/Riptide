@@ -105,8 +105,10 @@ pub inline fn ceilI(v: f32) i32 {
 }
 
 /// Returns true when `@floor(v)` fits in an i32.
+/// Bounds world-space coordinates to |v| < 2^30, which leaves headroom for
+/// neighbour offsets in i32. Real worlds are far smaller.
 pub inline fn blockCoordInRange(v: f32) bool {
-    return v >= -2147483648.0 and v < 2147483520.0;
+    return v > -1073741824.0 and v < 1073741824.0;
 }
 
 const sin_table: [65536]f32 = blk: {

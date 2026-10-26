@@ -64,7 +64,9 @@ typedef struct {
     uint8_t reserved[3];
 } rt_collision_context;
 
-/* Writes the cell at (x, y, z) to *out. Returns 1 if loaded, 0 if unknown. */
+/* Writes the cell at (x, y, z) to *out. Returns 1 if loaded, 0 if unknown.
+ * *out arrives zeroed except friction = 0.6, accel_friction_mul = 1 and
+ * bubble_surface = -1, so callbacks only set what differs. */
 typedef int (*rt_block_fn)(void *user, int32_t x, int32_t y, int32_t z, rt_block *out);
 /* Writes up to `cap` local boxes for a block flagged RT_BLOCK_DYNAMIC_SHAPE
  * and returns how many were written. */

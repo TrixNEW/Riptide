@@ -40,7 +40,8 @@ pub fn observeHead(sim: *Simulator, state: *const State) ?liquid.HeadLiquid {
 /// or a position or velocity component by more than `tolerance`. A zero
 /// tolerance demands bit-exact agreement.
 pub fn firstDivergence(a: []const Result, b: []const Result, tolerance: f32) ?usize {
-    for (a, b, 0..) |x, y, i| {
+    const n = @min(a.len, b.len);
+    for (a[0..n], b[0..n], 0..) |x, y, i| {
         if (x.outcome != y.outcome or x.on_ground != y.on_ground) return i;
         if (!close(x.pos, y.pos, tolerance) or !close(x.vel, y.vel, tolerance)) return i;
     }

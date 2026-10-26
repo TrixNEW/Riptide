@@ -11,10 +11,7 @@ static const rt_aabb unit = {0, 0, 0, 1, 1, 1};
 /* Stone floor at y = -1, plus a block with an invalid enum at (5, 0, 5). */
 static int block(void *user, int32_t x, int32_t y, int32_t z, rt_block *out) {
     (void)user;
-    memset(out, 0, sizeof *out);
-    out->friction = 0.6f;
-    out->accel_friction_mul = 1;
-    out->bubble_surface = -1;
+    /* The library pre-fills friction defaults; air needs nothing else. */
     if (y == -1) {
         out->kind = RT_KIND_BLOCK;
         out->shape = &unit;
