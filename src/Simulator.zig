@@ -1013,6 +1013,7 @@ pub inline fn block(sim: *Simulator, pos: BlockPos) Error!Block {
     const i = BlockCache.slot(pos);
     if (c.stamps[i] == c.generation and c.keys[i].eql(pos)) return c.blocks[i];
     const b = sim.world.block(pos) orelse return error.Unloaded;
+    if (!b.semantics.isValid()) return error.InvalidWorld;
     c.stamps[i] = c.generation;
     c.keys[i] = pos;
     c.blocks[i] = b;

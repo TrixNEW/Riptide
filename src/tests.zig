@@ -862,3 +862,14 @@ test "property: replays of chaotic input are bit-identical" {
         try testing.expect(std.meta.eql(x.result, y.result));
     }
 }
+
+test "invalid block semantics are reported, not simulated" {
+    var f: Fixture = .{};
+    defer f.deinit();
+    try f.map.put(gpa, .init(0, -1, 0), .full(.{ .friction = std.math.nan(f32) }));
+    f.init(.vanilla);
+    var s = standing(.init(0.5, 0, 0.5));
+    const before = s;
+    try testing.expectEqual(state_mod.Outcome.invalid_world, f.sim.tick(&s, &.{}).outcome);
+    try testing.expect(s.pos.eql(before.pos));
+}

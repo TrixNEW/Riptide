@@ -30,6 +30,26 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(fixtures).step);
 
+    const lib = b.addLibrary(.{
+        .name = "riptide",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/c_api.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    lib.installHeader(b.path("include/riptide.h"), "riptide.h");
+    b.step("lib", "Build the C static library and header").dependOn(&b.addInstallArtifact(lib, .{}).step);
+
+    const c_test = b.addExecutable(.{
+        .name = "c-api-test",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    c_test.root_module.addCSourceFile(.{ .file = b.path("tests/c_api_test.c"), .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
+    c_test.root_module.addIncludePath(b.path("include"));
+    c_test.root_module.linkLibrary(lib);
+    test_step.dependOn(&b.addRunArtifact(c_test).step);
+
     const bench = b.addExecutable(.{
         .name = "riptide-bench",
         .root_module = b.createModule(.{
