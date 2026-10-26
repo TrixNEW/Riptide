@@ -1,0 +1,22 @@
+diff --git a/simulation.go b/simulation.go
+index 9a4f323..cebd6c7 100644
+--- a/simulation.go
++++ b/simulation.go
+@@ -2,6 +2,7 @@ package bedsim
+ 
+ import (
+ 	"iter"
++	"math"
+ 
+ 	"github.com/chewxy/math32"
+ 
+@@ -1020,7 +1021,8 @@ func moveRelative(state *MovementState, moveRelativeSpeed float32) {
+ 		// DefaultMoveSystems::horizontalMovement uses sincosf. The jump
+ 		// boost separately uses the lookup table in attemptJump.
+ 		yaw := state.Rotation.Z() * float32(math32.Pi/180)
+-		v2, v3 := math32.Sin(yaw), math32.Cos(yaw)
++		// riptide oracle: correctly rounded sinf/cosf.
++		v2, v3 := float32(math.Sin(float64(yaw))), float32(math.Cos(float64(yaw)))
+ 
+ 		newVel := state.Vel
+ 		newVel[0] += ms*v3 - v2*impulse.Y()*force
