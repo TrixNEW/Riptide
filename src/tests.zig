@@ -579,3 +579,157 @@ test "constants match the Go reference bit patterns" {
     try testing.expectEqual(@as(u32, 0x3ed70a3c), @as(u32, @bitCast(liquid.swim_liquid_probe)));
     try testing.expectEqual(@as(u32, 0xbf1170a4), @as(u32, @bitCast(Simulator.edge_drop)));
 }
+
+// Contact rounding, ported from BedSim's bbox tests.
+
+test "captured BDS wall contacts" {
+    // Positions recorded from a real BDS session (BedSim bbox_test.go).
+    const cases = [_]struct { pos: Vec3, wall: AABB, vel: Vec3, axis: math.Axis, want: f32 }{
+        .{ .pos = .init(186.61009, -59.580002, 4.5), .wall = .init(187, -61, 3, 188, -59, 6), .vel = .init(0.28, 0, 0), .axis = .x, .want = 186.7 },
+        .{ .pos = .init(26.5, -59, 5.611176), .wall = .init(24, -60, 6, 29, -58, 7), .vel = .init(0, 0, 0.2584), .axis = .z, .want = 5.7 },
+    };
+    for (cases) |c| {
+        const s: State = .{ .pos = c.pos };
+        const box = s.boundingBox();
+        const moved = box.translate(@import("aabb.zig").clipCollide(c.wall, box, c.vel).depenetrating);
+        const center = moved.min.add(moved.max).scale(0.5);
+        try testing.expectEqual(c.want, center.get(c.axis));
+    }
+}
+
+test "contact epsilon does not shrink sweeps" {
+    const clipCollide = @import("aabb.zig").clipCollide;
+    const wall = AABB.init(-1, -1, -1, 0, 3, 3);
+    for ([_]struct { gap: f32, blocked: bool }{ .{ .gap = -5e-7, .blocked = false }, .{ .gap = -2e-6, .blocked = true }, .{ .gap = 5e-7, .blocked = false } }) |c| {
+        const box = AABB.init(c.gap, 0, 0, 0.6 + c.gap, 1.8, 0.6);
+        const r = clipCollide(wall, box, .init(0, 0, 0.1));
+        try testing.expectEqual(c.blocked, r.penetration > 0);
+        try testing.expectEqual(c.blocked, r.depenetrating.x > 0);
+    }
+}
+
+/// Floor at y = 0 and a wall face at +-256 on `axis`, with the player at
+/// +-256.3 so its rounded box minimum lands inside the wall.
+fn roundedContactWorld(map: *MapWorld, axis: math.Axis, sign: f32) !State {
+    const stone: Block = .full(.default);
+    const lo: i32 = if (sign > 0) 249 else -256;
+    const hi: i32 = if (sign > 0) 255 else -250;
+    const flo: i32 = if (sign > 0) 249 else -263;
+    const fhi: i32 = if (sign > 0) 262 else -250;
+    if (axis == .x) {
+        try map.fill(gpa, .init(flo, 0, -6), .init(fhi, 0, 6), stone);
+        try map.fill(gpa, .init(lo, 0, -6), .init(hi, 3, 6), stone);
+    } else {
+        try map.fill(gpa, .init(-6, 0, flo), .init(6, 0, fhi), stone);
+        try map.fill(gpa, .init(-6, 0, lo), .init(6, 3, hi), stone);
+    }
+    var s: State = .{ .pos = .init(0.5, 1, 0.5), .on_ground = true };
+    s.pos.set(axis, sign * 256.3);
+    s.reported.pos = s.pos;
+    return s;
+}
+
+fn other(axis: math.Axis) math.Axis {
+    return if (axis == .x) .z else .x;
+}
+
+test "rounded contact seeds stay flush across re-anchoring" {
+    for ([_]math.Axis{ .x, .z }) |axis| for ([_]f32{ -1, 1 }) |sign| {
+        var map: MapWorld = .{};
+        defer map.deinit(gpa);
+        var s = try roundedContactWorld(&map, axis, sign);
+        var sim: Simulator = .init(map.world(), .{ .policy = .vanilla });
+        for (0..3) |_| {
+            // The server adopts a new rounded client centre each tick.
+            var p = s.pos;
+            p.set(other(axis), p.get(other(axis)) + 0.01);
+            s.setPosition(p);
+            s.vel = .zero;
+            s.vel.set(other(axis), 0.1);
+            const r = sim.tick(&s, &.{ .reported_pos = s.pos });
+            try testing.expectEqual(state_mod.Outcome.normal, r.outcome);
+            try testing.expect(!r.collide_x and !r.collide_z and !s.penetrated_last_frame and !s.stuck_in_collider);
+            try testing.expectEqual(sign * 256.3, s.pos.get(axis));
+            try testing.expect(s.on_ground);
+        }
+    };
+}
+
+test "rounded contact recovery keeps real penetration" {
+    for ([_]math.Axis{ .x, .z }) |axis| for ([_]f32{ -1, 1 }) |sign| {
+        var map: MapWorld = .{};
+        defer map.deinit(gpa);
+        var s = try roundedContactWorld(&map, axis, sign);
+        s.pos.set(axis, s.pos.get(axis) - sign * 0.005);
+        var sim: Simulator = .init(map.world(), .{ .policy = .vanilla });
+        const r = sim.tick(&s, &.{ .reported_pos = s.pos });
+        try testing.expectEqual(state_mod.Outcome.normal, r.outcome);
+        try testing.expect(s.penetrated_last_frame and (r.collide_x or r.collide_z));
+    };
+}
+
+test "rounded contact recovery is independent of box order" {
+    const boxes = [_]AABB{ .init(255, 0, 255, 256, 4, 258), .init(255, 0, 255, 258, 4, 256) };
+    const reversed = [_]AABB{ boxes[1], boxes[0] };
+    const s: State = .{ .pos = .init(256.3, 1, 256.3) };
+    for ([_][]const AABB{ &boxes, &reversed }) |list| {
+        const box = Simulator.recoverRoundedContacts(s.boxAt(s.pos), s.pos, list);
+        try testing.expect(box.min.eql(.init(256, 1, 256)));
+        const c = box.min.add(box.max).scale(0.5);
+        try testing.expect(c.x == s.pos.x and c.z == s.pos.z);
+    }
+}
+
+test "rounded contact recovery waits for loaded world data" {
+    var map: MapWorld = .{};
+    defer map.deinit(gpa);
+    var s = try roundedContactWorld(&map, .x, 1);
+    map.loaded_max = .init(200, 400, 400);
+    var sim: Simulator = .init(map.world(), .{ .policy = .vanilla });
+    try testing.expectEqual(state_mod.Outcome.unloaded, sim.tick(&s, &.{ .reported_pos = s.pos }).outcome);
+    try testing.expect(!s.shape.valid);
+    map.loaded_max = .init(std.math.maxInt(i32), std.math.maxInt(i32), std.math.maxInt(i32));
+    s.vel = .init(0, -0.0784, 0.1);
+    const r = sim.tick(&s, &.{ .reported_pos = s.pos });
+    try testing.expect(r.outcome == .normal and !r.collide_x and !s.penetrated_last_frame);
+}
+
+test "native teleports and resizes rebuild endpoints without recovery" {
+    for ([_]bool{ true, false }) |teleport| {
+        var map: MapWorld = .{};
+        defer map.deinit(gpa);
+        var s = try roundedContactWorld(&map, .x, 1);
+        var sim: Simulator = .init(map.world(), .{ .policy = .vanilla });
+        _ = sim.tick(&s, &.{ .reported_pos = s.pos });
+        s.pos.x = 256.3;
+        s.vel = .zero;
+        if (teleport) {
+            s.queueTeleport(s.pos, 0);
+            try testing.expectEqual(state_mod.Outcome.teleport, sim.tick(&s, &.{ .reported_pos = s.pos }).outcome);
+        } else {
+            s.size.height = 1.49;
+            s.sneaking = true;
+        }
+        s.vel = .init(0, -0.0784, 0.1);
+        const r = sim.tick(&s, &.{ .reported_pos = s.pos, .flags = .{ .sneak_down = !teleport } });
+        try testing.expect(r.collide_x and s.penetrated_last_frame);
+    }
+}
+
+test "rounded contact recovery does not erase new obstacles" {
+    var map: MapWorld = .{};
+    defer map.deinit(gpa);
+    var s = try roundedContactWorld(&map, .x, 1);
+    var removed: MapWorld = .{};
+    defer removed.deinit(gpa);
+    try removed.fill(gpa, .init(249, 0, -6), .init(262, 0, 6), .full(.default));
+    var sim: Simulator = .init(removed.world(), .{ .policy = .vanilla });
+    s.vel = .zero;
+    _ = sim.tick(&s, &.{ .reported_pos = s.pos });
+    s.pos.x = 256.3;
+    s.pos.z = 0.5;
+    s.vel = .init(0, -0.0784, 0.1);
+    sim.world = map.world();
+    const r = sim.tick(&s, &.{ .reported_pos = s.pos });
+    try testing.expect(r.collide_x and s.penetrated_last_frame);
+}
