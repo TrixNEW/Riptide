@@ -457,6 +457,8 @@ pub const Mechanics = packed struct(u32) {
             .sneak_edge = true,
         });
         if (bits & uncertain_bits != 0) return .uncertain;
+        // BedSim drops motion while gliding. Applying it is unverified.
+        if (m.glide and m.motion) return .uncertain;
         if (bits & ~decompiled_bits != 0) return .ported;
         return .decompiled;
     }
@@ -543,4 +545,5 @@ test "confidence classification" {
     try std.testing.expectEqual(Confidence.decompiled, (Mechanics{ .ground = true }).confidence());
     try std.testing.expectEqual(Confidence.ported, (Mechanics{ .ground = true, .water = true }).confidence());
     try std.testing.expectEqual(Confidence.uncertain, (Mechanics{ .riptide = true }).confidence());
+    try std.testing.expectEqual(Confidence.uncertain, (Mechanics{ .glide = true, .motion = true }).confidence());
 }
