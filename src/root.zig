@@ -1,11 +1,3 @@
-//! Riptide: a deterministic Minecraft Bedrock player movement simulator.
-//!
-//! ```zig
-//! var sim = riptide.Simulator.init(my_world, .{ .policy = .hardened });
-//! var state: riptide.State = .{ .pos = spawn };
-//! const result = sim.tick(&state, &input);
-//! ```
-
 const math = @import("math.zig");
 const aabb = @import("aabb.zig");
 const world = @import("world.zig");
@@ -53,7 +45,6 @@ pub const TraceEvent = trace.Event;
 pub const replay = @import("replay.zig");
 pub const HeadLiquid = @import("liquid.zig").HeadLiquid;
 
-/// Bedrock trigonometry and float32 helpers.
 pub const mc = struct {
     pub const sin = math.mcSin;
     pub const cos = math.mcCos;

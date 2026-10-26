@@ -1,6 +1,3 @@
-//! Fixture format shared by the differential tests and benchmarks. Fixtures
-//! hold per-tick results recorded from BedSim by tools/oracle.
-
 const std = @import("std");
 const rt = @import("riptide");
 
@@ -84,7 +81,6 @@ pub const Expect = struct {
     vel: [3]f32,
     mov: [3]f32,
     on_ground: bool = false,
-    /// Bits x, y, z.
     collide: u3 = 0,
     fall: f32 = 0,
     height: f32,
@@ -249,14 +245,12 @@ fn mapLookup(ptr: *anyopaque, pos: rt.BlockPos) ?rt.Block {
     return w.world().block(pos);
 }
 
-/// Mirror of the oracle's dynamic scaffolding rule.
 fn scaffoldShape(_: *anyopaque, pos: rt.BlockPos, _: *const rt.Block, ctx: *const rt.CollisionContext, out: *rt.ShapeBuffer) void {
     if (!ctx.descend_through_block and ctx.position.y >= @as(f32, @floatFromInt(pos.y + 1)) - 1e-5) {
         out.append(.init(0, 0.875, 0, 1, 1, 1));
     }
 }
 
-/// A scenario converted to simulator types, ready to replay.
 pub const Prepared = struct {
     world: rt.MapWorld,
     initial: rt.State,
@@ -274,7 +268,6 @@ pub const Prepared = struct {
         return .init(.{ .ptr = &p.world, .vtable = &dynamic_vtable }, .{ .policy = .hardened, .sprint_timing = if (p.legacy) .legacy else .modern });
     }
 
-    /// Applies the step's server events, then ticks.
     pub fn tick(sim: *rt.Simulator, state: *rt.State, step: *const Step) rt.Result {
         if (step.motion) |m| state.queueMotion(m);
         if (step.teleport) |t| state.queueTeleport(t.pos, t.smoothed);
@@ -294,8 +287,6 @@ pub fn prepare(sc: *const Scenario, arena: std.mem.Allocator) !Prepared {
     return .{ .world = try buildWorld(arena, sc.world), .initial = initialState(sc.state), .steps = steps, .legacy = sc.sprint_legacy };
 }
 
-/// Replays `sc` and compares every tick. `verbose` prints the first
-/// divergence and records mechanic coverage, so it must not run concurrently.
 pub fn runScenario(sc: *const Scenario, arena: std.mem.Allocator, verbose: bool) !bool {
     var p = try prepare(sc, arena);
     var sim = p.simulator();

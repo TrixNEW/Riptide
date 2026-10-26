@@ -1,5 +1,3 @@
-//! Simulation state, per-tick input, configuration, and results.
-
 const std = @import("std");
 const math = @import("math.zig");
 const AABB = @import("aabb.zig").AABB;
@@ -17,7 +15,6 @@ pub const riptide_ticks = 20;
 
 pub const GameMode = enum(u8) { survival, creative, adventure, spectator };
 
-/// Degrees. Bedrock sends pitch, head yaw, and body yaw separately.
 pub const Rotation = extern struct {
     pitch: f32 = 0,
     head_yaw: f32 = 0,
@@ -28,7 +25,6 @@ pub const Rotation = extern struct {
     }
 };
 
-/// Active effect amplifiers (zero-based, as sent by the protocol).
 pub const Effects = struct {
     jump_boost: ?i32 = null,
     levitation: ?i32 = null,
@@ -36,19 +32,15 @@ pub const Effects = struct {
     weaving: bool = false,
 };
 
-/// Equipment state affecting movement. Levels are enchantment levels.
 pub const Equipment = struct {
     depth_strider: u8 = 0,
     soul_speed: u8 = 0,
     swift_sneak: u8 = 0,
     riptide: u8 = 0,
     leather_boots: bool = false,
-    /// A chest-slot elytra that can still fly. Vanilla treats one with
-    /// damage of at least its maximum durability minus one as broken.
     elytra: bool = false,
 };
 
-/// Entity dimensions. `height` is the current pose height.
 pub const Size = extern struct {
     width: f32 = 0.6,
     height: f32 = 1.8,
@@ -67,13 +59,10 @@ pub const Size = extern struct {
 
 pub const Teleport = struct {
     target: Vec3,
-    /// Ticks left including the current one. Each tick moves
-    /// `1 / remaining` of the way.
     remaining: u32,
     smoothed: bool,
 };
 
-/// Values reported by the client. They are never trusted as physics input.
 pub const Reported = struct {
     pos: Vec3 = .zero,
     vel: Vec3 = .zero,
@@ -83,8 +72,6 @@ pub const Reported = struct {
     toggled_fly: bool = false,
 };
 
-/// Native swept-box endpoints. Rebuilding a box from its rounded centre can
-/// move a flush face into the touching block.
 pub const CollisionShape = struct {
     box: AABB = .init(0, 0, 0, 0, 0, 0),
     pos: Vec3 = .zero,
@@ -93,12 +80,9 @@ pub const CollisionShape = struct {
     valid: bool = false,
 };
 
-/// Authoritative movement state of one entity. Plain data: copying it
-/// produces an independent snapshot.
 pub const State = struct {
     pos: Vec3 = .zero,
     vel: Vec3 = .zero,
-    /// Displacement produced by the last simulated tick.
     mov: Vec3 = .zero,
     rotation: Rotation = .{},
     last_rotation: Rotation = .{},
@@ -118,25 +102,18 @@ pub const State = struct {
     swim_amount: f32 = 0,
 
     sprinting: bool = false,
-    /// Sprint state from server metadata, adopted when the client sends no
-    /// sprint edge.
     server_sprint: bool = false,
     server_sprint_applied: bool = true,
-    /// The server already sent the movement attribute for a sprint change.
     server_updated_speed: bool = false,
 
-    /// Effective movement attribute including Speed and Slowness.
     movement_speed: f32 = 0.1,
-    /// Effective non-sprinting movement attribute.
     default_movement_speed: f32 = 0.1,
-    /// Air acceleration. Derived from the sprint state each tick.
     air_speed: f32 = walk_air_speed,
     jump_strength: f32 = default_jump_strength,
     gravity: f32 = default_gravity,
     has_gravity: bool = true,
     underwater_speed: f32 = 0.02,
     lava_speed: f32 = 0.02,
-    /// Dolphin's Grace swim acceleration multiplier.
     swim_speed_multiplier: f32 = 1,
     dolphin_boost_ticks: u32 = 0,
 
@@ -145,7 +122,6 @@ pub const State = struct {
 
     game_mode: GameMode = .survival,
     flying: bool = false,
-    /// Accept client fly toggles. Set from the server's abilities.
     trust_fly_status: bool = false,
     just_disabled_flight: bool = false,
     no_clip: bool = false,
@@ -159,17 +135,11 @@ pub const State = struct {
     ticks_since_can_slowdown: u32 = 0,
 
     riptide_ticks: u8 = 0,
-    /// One-tick trusted latch: set after validating a charged Riptide
-    /// trident release.
     riptide_ready: bool = false,
-    /// Set after a server-observed entity collision during Riptide. It
-    /// authorises the matching stop and reversal.
     riptide_collision: bool = false,
-    /// Server-observed rain exposure permitting Riptide outside water.
     riptide_in_rain: bool = false,
     starting_spin_attack: bool = false,
 
-    /// Remaining retained water contact under `Policy.swim_grace`.
     swim_grace_ticks: u16 = 0,
     stopped_swimming_this_tick: bool = false,
 
@@ -179,7 +149,6 @@ pub const State = struct {
     teleport: ?Teleport = null,
     firework_pending: bool = false,
 
-    // Per-tick input mirrors.
     jumping: bool = false,
     pressing_jump: bool = false,
     pressing_ascend: bool = false,
@@ -190,7 +159,6 @@ pub const State = struct {
     impulse: Vec2 = .{},
     jump_height: f32 = default_jump_strength,
 
-    // Internal carried state.
     stuck_speed: Vec3 = .zero,
     penetrated_last_frame: bool = false,
     stuck_in_collider: bool = false,
@@ -199,21 +167,14 @@ pub const State = struct {
     sprint_movement_blocked: bool = false,
     shape: CollisionShape = .{},
 
-    /// Queues an authoritative velocity replacement (SetActorMotion,
-    /// knockback, explosions) for the next simulated tick. The latest wins.
     pub fn queueMotion(s: *State, vel: Vec3) void {
         s.pending_motion = vel;
     }
 
-    /// Queues a server-validated firework rocket use. It arms the 20-tick
-    /// boost on the next tick if the entity is still gliding.
     pub fn queueFireworkBoost(s: *State) void {
         s.firework_pending = true;
     }
 
-    /// Queues an authoritative teleport. `smoothed_ticks` is zero for an
-    /// instant teleport; otherwise the move is spread over that many ticks
-    /// plus the final snap.
     pub fn queueTeleport(s: *State, target: Vec3, smoothed_ticks: u32) void {
         s.teleport = .{
             .target = target,
@@ -222,13 +183,10 @@ pub const State = struct {
         };
     }
 
-    /// Re-anchors the position, for example from a trusted client position.
-    /// Contact faces are recovered on the next tick when unambiguous.
     pub fn setPosition(s: *State, pos: Vec3) void {
         s.pos = pos;
     }
 
-    /// Recent server-observed water contact permits the collapsed hitbox.
     pub fn swimPose(s: *const State) bool {
         return s.swimming and (s.swim_water_contact or s.swim_grace_ticks > 0);
     }
@@ -237,7 +195,6 @@ pub const State = struct {
         return s.swimPose() or s.gliding or s.riptide_ticks > 0;
     }
 
-    /// Scaled half-width and pose height of the collision box.
     pub fn dimensions(s: *const State) struct { half_width: f32, height: f32 } {
         const scale = s.size.scale;
         const height = if (s.compactPose()) s.size.width * scale else s.size.height * scale;
@@ -249,7 +206,6 @@ pub const State = struct {
         return .init(pos.x - d.half_width, pos.y, pos.z - d.half_width, pos.x + d.half_width, pos.y + d.height, pos.z + d.half_width);
     }
 
-    /// The collision box, reusing retained swept endpoints when valid.
     pub fn boundingBox(s: *const State) AABB {
         const d = s.dimensions();
         const shape = s.shape;
@@ -262,7 +218,6 @@ pub const State = struct {
         s.shape = .{ .box = box, .pos = s.pos, .half_width = d.half_width, .height = d.height, .valid = true };
     }
 
-    /// Vanilla eye attachment for the current pose.
     pub fn eyePosition(s: *const State) Vec3 {
         const offset: f32 = if (s.swimPose() or s.crawling or s.gliding or s.riptide_ticks > 0)
             0.4
@@ -273,7 +228,6 @@ pub const State = struct {
         return s.pos.add(.init(0, offset * s.size.scale, 0));
     }
 
-    /// True when every numeric field is usable.
     pub fn isValid(s: *const State) bool {
         const vecs = [_]Vec3{ s.pos, s.vel, s.mov, s.stuck_speed, s.reported.pos, s.reported.vel, s.reported.last_pos };
         for (vecs) |v| if (!v.isFinite()) return false;
@@ -291,20 +245,12 @@ pub const State = struct {
     }
 };
 
-/// One tick of client input, typically decoded from PlayerAuthInput.
 pub const Input = struct {
-    /// Movement vector: `x` strafes, `y` moves forward.
     move: Vec2 = .{},
-    /// `move` holds raw controls; the simulator applies normalisation and
-    /// slowdowns. Otherwise it is a processed vector, clamped to the bound
-    /// those slowdowns allow.
     move_is_raw: bool = false,
     rotation: Rotation = .{},
-    /// Client-reported position and velocity, used only for deltas and for
-    /// ticks the server does not simulate.
     reported_pos: Vec3 = .zero,
     reported_vel: Vec3 = .zero,
-    /// Explicit item-use slowdown in [0, 1]. Null derives it from flags.
     item_use_modifier: ?f32 = null,
     flags: Flags = .{},
 
@@ -349,68 +295,41 @@ pub const Input = struct {
 };
 
 pub const SwimGrace = union(enum) {
-    /// Vanilla: water travel follows the client's swimming flag.
     trust_client,
-    /// Hardened: the swimming flag keeps water travel and the swim hitbox
-    /// only within this many ticks of server-observed water contact.
     ticks: u16,
 };
 
-/// Rules that intentionally differ from the vanilla client. Every field is
-/// a conscious choice, so there is no default.
 pub const Policy = struct {
     swim_grace: SwimGrace,
-    /// Rejects a valid step-up whose end lies farther from the reported
-    /// position than the unstepped move, unless the unstepped move is itself
-    /// farther than this distance. Null accepts every valid step.
     step_client_tiebreak: ?f32,
 
-    /// Exactly the client's rules.
     pub const vanilla: Policy = .{ .swim_grace = .trust_client, .step_client_tiebreak = null };
-    /// Bounds client-controlled swim state for server authority.
     pub const hardened: Policy = .{ .swim_grace = .{ .ticks = 10 }, .step_client_tiebreak = null };
 };
 
 pub const SprintTiming = enum {
-    /// Protocol 1.21.0 and later: sprint changes apply before movement.
     modern,
-    /// Older clients apply sprint changes after movement.
     legacy,
 };
 
 pub const Config = struct {
     policy: Policy,
     sprint_timing: SprintTiming = .modern,
-    /// Upper bound on block cells scanned by one collision query.
     max_query_cells: u32 = 8192,
 };
 
 pub const Outcome = enum(u8) {
-    /// Physics ran.
     normal,
-    /// An authoritative teleport moved the entity. No physics ran.
     teleport,
-    /// The client controls movement this tick (flying, creative, spectator,
-    /// no-clip, dead). The state follows the reported values.
     client_authoritative,
-    /// A required block was not loaded. Pose and position are unchanged and
-    /// velocity is cleared.
     unloaded,
-    /// The entity is immobile or not ready. Velocity is cleared.
     immobile,
-    /// Mounted entities follow the reported state. Vehicle physics are not
-    /// simulated.
     mounted,
-    /// The state or input contained NaN, infinity, or out-of-range values.
     invalid_input,
-    /// The world returned invalid block data.
     invalid_world,
-    /// The movement exceeded the query limits or coordinate range. Treated
-    /// like `unloaded`.
     query_limit,
 };
 
-/// Mechanics that took part in a tick.
 pub const Mechanics = packed struct(u32) {
     ground: bool = false,
     air: bool = false,
@@ -438,7 +357,6 @@ pub const Mechanics = packed struct(u32) {
     pose_change: bool = false,
     _pad: u8 = 0,
 
-    /// Evidence behind each mechanic, from strongest to weakest.
     pub fn confidence(m: Mechanics) Confidence {
         const Bits = @typeInfo(Mechanics).@"struct".backing_integer.?;
         const bits: Bits = @bitCast(m);
@@ -465,11 +383,8 @@ pub const Mechanics = packed struct(u32) {
 };
 
 pub const Confidence = enum(u8) {
-    /// Constants and ordering cite native client disassembly.
     decompiled,
-    /// Ported from BedSim/Oomph without cited native evidence.
     ported,
-    /// Open questions remain, or behaviour depends on caller-supplied rules.
     uncertain,
 };
 
@@ -482,12 +397,9 @@ pub const Result = struct {
     collide_x: bool = false,
     collide_y: bool = false,
     collide_z: bool = false,
-    /// Simulated minus reported.
     position_delta: Vec3 = .zero,
     velocity_delta: Vec3 = .zero,
-    /// Processed movement input before the 0.98 impulse factor.
     input_move: Vec2 = .{},
-    /// The dominant requested axis stalled. Feeds next tick's sprint intent.
     sprint_movement_blocked: bool = false,
     mechanics: Mechanics = .{},
 
@@ -496,18 +408,14 @@ pub const Result = struct {
     }
 };
 
-/// Correction policy over simulation results. Kept separate from physics.
 pub const Correction = struct {
     mode: Mode = .authoritative,
     position_threshold: f32,
     velocity_threshold: f32,
 
     pub const Mode = enum {
-        /// Position or velocity drift triggers a correction.
         authoritative,
-        /// Only position drift triggers a correction.
         permissive,
-        /// Never corrects. Deltas are still reported.
         passive,
     };
 

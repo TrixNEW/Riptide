@@ -3,7 +3,6 @@ const math = @import("math.zig");
 const Vec3 = math.Vec3;
 const Axis = math.Axis;
 
-/// Axis-aligned box in f32.
 pub const AABB = extern struct {
     min: Vec3,
     max: Vec3,
@@ -18,7 +17,6 @@ pub const AABB = extern struct {
         return .{ .min = b.min.add(v), .max = b.max.add(v) };
     }
 
-    /// Expands towards the sign of each component of `v`.
     pub fn extend(b: AABB, v: Vec3) AABB {
         var r = b;
         inline for (.{ "x", "y", "z" }) |f| {
@@ -52,8 +50,6 @@ pub const AABB = extern struct {
         return r;
     }
 
-    /// Overlap test with a 1e-5 contact tolerance: touching faces do not
-    /// intersect.
     pub inline fn intersects(a: AABB, o: AABB) bool {
         const e: f32 = 1e-5;
         return o.max.x - a.min.x > e and a.max.x - o.min.x > e and
@@ -61,7 +57,6 @@ pub const AABB = extern struct {
             o.max.z - a.min.z > e and a.max.z - o.min.z > e;
     }
 
-    /// True for empty, inverted, or non-finite boxes.
     pub inline fn isDegenerate(b: AABB) bool {
         return !(b.min.x < b.max.x and b.min.y < b.max.y and b.min.z < b.max.z and
             b.min.isFinite() and b.max.isFinite());
@@ -71,7 +66,6 @@ pub const AABB = extern struct {
         return b.min.isFinite() and b.max.isFinite();
     }
 
-    /// The bottom centre, which is the entity position for a player box.
     pub inline fn bottomCenter(b: AABB) Vec3 {
         return .init((b.min.x + b.max.x) * 0.5, b.min.y, (b.min.z + b.max.z) * 0.5);
     }
@@ -81,8 +75,6 @@ pub const AABB = extern struct {
     }
 };
 
-/// Contact distances within one micrometre snap to zero, as in
-/// `AABB::clipCollide`.
 const contact_epsilon: f32 = 1e-6;
 
 pub const Clip = struct {
@@ -92,8 +84,6 @@ pub const Clip = struct {
     penetration: f32 = 0,
 };
 
-/// Clips `vel` of `moving` against `stationary`. When the boxes already
-/// overlap, `depenetrating` pushes out along the axis of least penetration.
 pub fn clipCollide(stationary: AABB, moving: AABB, vel: Vec3) Clip {
     var r: Clip = .{ .clipped = vel, .depenetrating = vel };
     if (stationary.isDegenerate()) return r;

@@ -1,9 +1,3 @@
-//! Float32 math with Bedrock rounding behaviour.
-//!
-//! Every operation rounds to f32 after each step, matching the client's
-//! strict IEEE evaluation. Do not reorder expressions in this module or its
-//! callers: algebraically equal forms round differently.
-
 const std = @import("std");
 
 pub const Vec3 = extern struct {
@@ -70,7 +64,6 @@ pub const Vec3 = extern struct {
     }
 };
 
-/// Horizontal input: `x` strafes, `y` moves forward.
 pub const Vec2 = extern struct {
     x: f32 = 0,
     y: f32 = 0,
@@ -91,22 +84,16 @@ pub inline fn clamp(v: f32, lo: f32, hi: f32) f32 {
     return @min(v, hi);
 }
 
-/// Floors to a block coordinate. The caller must ensure `blockCoordInRange`.
-/// Truncation avoids a libm call on CPUs without SSE4.1.
 pub inline fn floorI(v: f32) i32 {
     const t: i32 = @intFromFloat(v);
     return t - @intFromBool(@as(f32, @floatFromInt(t)) > v);
 }
 
-/// Ceils to a block coordinate. The caller must ensure `blockCoordInRange`.
 pub inline fn ceilI(v: f32) i32 {
     const t: i32 = @intFromFloat(v);
     return t + @intFromBool(@as(f32, @floatFromInt(t)) < v);
 }
 
-/// Returns true when `@floor(v)` fits in an i32.
-/// Bounds world-space coordinates to |v| < 2^30, which leaves headroom for
-/// neighbour offsets in i32. Real worlds are far smaller.
 pub inline fn blockCoordInRange(v: f32) bool {
     return v > -1073741824.0 and v < 1073741824.0;
 }
@@ -120,8 +107,7 @@ const sin_table: [65536]f32 = blk: {
     break :blk t;
 };
 
-/// Float-to-int conversion with x86 `cvttss2si` semantics: out-of-range and
-/// NaN inputs produce the integer indefinite value instead of trapping.
+// Out-of-range and NaN inputs give the integer indefinite value, as cvttss2si does.
 inline fn truncI32(v: f32) i32 {
     if (!(v >= -2147483648.0 and v < 2147483648.0)) return std.math.minInt(i32);
     return @intFromFloat(v);
@@ -131,29 +117,23 @@ inline fn tableAt(i: i32) f32 {
     return sin_table[@as(u16, @truncate(@as(u32, @bitCast(i))))];
 }
 
-/// Bedrock's lookup-table sine (`mce::Math::sin`).
 pub inline fn mcSin(v: f32) f32 {
     return tableAt(truncI32(v * 10430.378));
 }
 
-/// Bedrock's lookup-table cosine. The scaled angle is rounded to f32 before
-/// the quarter-turn offset is added.
 pub inline fn mcCos(v: f32) f32 {
     const scaled: f32 = v * 10430.378;
     return tableAt(truncI32(scaled + 16384.0));
 }
 
-/// Correctly rounded `sinf`, evaluated in f64 and rounded once.
 pub inline fn sinf(v: f32) f32 {
     return @floatCast(@sin(@as(f64, v)));
 }
 
-/// Correctly rounded `cosf`, evaluated in f64 and rounded once.
 pub inline fn cosf(v: f32) f32 {
     return @floatCast(@cos(@as(f64, v)));
 }
 
-/// `previous + wrapDegrees(current - previous)` in f32.
 pub fn wrappedAngle(previous: f32, current: f32) f32 {
     var delta = @rem(current - previous + 180, 360);
     if (delta < 0) delta += 360;
@@ -166,7 +146,6 @@ test "trig table matches the vanilla index rules" {
     try std.testing.expectEqual(@as(f32, 0), mcSin(0));
     try std.testing.expectEqual(@as(f32, 1), mcCos(0));
     try std.testing.expectEqual(sin_table[16384], mcSin(std.math.pi / 2.0));
-    // Negative angles truncate toward zero before wrapping.
     var bits: u32 = @bitCast(@as(f32, -7));
     const stop: u32 = @bitCast(@as(f32, -6.99));
     while (bits > stop) : (bits -= 7) {

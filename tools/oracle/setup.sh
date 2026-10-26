@@ -1,5 +1,4 @@
 #!/bin/sh
-# Prepares the pinned, patched BedSim checkout used as the differential oracle.
 set -eu
 cd "$(dirname "$0")"
 rm -rf .bedsim

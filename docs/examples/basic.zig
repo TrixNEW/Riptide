@@ -1,6 +1,3 @@
-//! Simulates a player sprint-jumping across a stone floor onto a slab and
-//! compares the result with client reports.
-
 const std = @import("std");
 const rt = @import("riptide");
 
@@ -10,7 +7,6 @@ pub fn main(init: std.process.Init) !void {
     var out = std.Io.File.stdout().writer(init.io, &out_buf);
     const w = &out.interface;
 
-    // A world adapter would normally wrap the server's chunk storage.
     var map: rt.MapWorld = .{};
     defer map.deinit(gpa);
     try map.fill(gpa, .init(-16, -1, -16), .init(16, -1, 16), .full(.default));
@@ -19,7 +15,6 @@ pub fn main(init: std.process.Init) !void {
 
     var sim: rt.Simulator = .init(map.world(), .{ .policy = .hardened });
     var state: rt.State = .{ .pos = .init(0.5, 0, 0.5), .on_ground = true };
-    // Stand-in for the remote client: an honest one runs the same physics.
     var client = state;
     const correction: rt.Correction = .{ .position_threshold = 0.03, .velocity_threshold = 0 };
 
@@ -31,7 +26,6 @@ pub fn main(init: std.process.Init) !void {
 
         _ = sim.tick(&client, &input);
         input.reported_pos = client.pos;
-        // On tick 10 the client claims to be half a block further ahead.
         if (tick == 10) input.reported_pos.z += 0.5;
 
         const r = sim.tick(&state, &input);

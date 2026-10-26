@@ -1,6 +1,3 @@
-//! Scenario tests for the simulator. Expected values come from BedSim's
-//! tests or from hand-derived vanilla arithmetic noted per test.
-
 const std = @import("std");
 const testing = std.testing;
 const math = @import("math.zig");
@@ -32,7 +29,6 @@ const Fixture = struct {
         f.map.deinit(gpa);
     }
 
-    /// A stone floor whose top is y = 0 over [-r, r] in x and z.
     fn floor(f: *Fixture, r: i32, b: Block) !void {
         try f.map.fill(gpa, .init(-r, -1, -r), .init(r, -1, r), b);
     }
@@ -52,7 +48,6 @@ test "falling uses vanilla gravity and drag" {
     const r = f.sim.tick(&s, &.{});
     try testing.expectEqual(state_mod.Outcome.normal, r.outcome);
     try testing.expectEqual(@as(f32, (0 - 0.08) * 0.98), s.vel.y);
-    // Terminal velocity emerges from (v - 0.08) * 0.98 and is never clamped.
     for (0..1000) |_| _ = f.sim.tick(&s, &.{});
     try testing.expectApproxEqAbs(@as(f32, -3.92), s.vel.y, 1e-4);
 }
@@ -67,7 +62,6 @@ test "walking on stone reaches the vanilla steady state" {
     for (0..60) |_| _ = f.sim.tick(&s, &input);
     try testing.expect(s.on_ground);
     try testing.expectEqual(@as(f32, 0), s.pos.y);
-    // v = (v + 0.1 * 0.98) * 0.546 converges to 0.1178...
     try testing.expectApproxEqAbs(@as(f32, 0.098 * 0.546 / (1 - 0.546)), s.vel.z, 1e-5);
     try testing.expectEqual(@as(f32, 0), s.vel.x);
 }
@@ -189,7 +183,6 @@ test "sneaking stops at a ledge" {
     for (0..40) |_| _ = f.sim.tick(&s, &input);
     try testing.expect(s.on_ground);
     try testing.expectEqual(@as(f32, 0), s.pos.y);
-    // The 0.025 inset lets the box overhang the edge by just under 0.325.
     try testing.expect(s.pos.z < 1.33);
 }
 
@@ -242,12 +235,10 @@ test "slime bounces and bed bounces three quarters" {
     var s: State = .{ .pos = .init(0.5, 0.2, 0.5), .vel = .init(0, -1, 0) };
     var r = f.sim.tick(&s, &.{});
     try testing.expect(r.mechanics.bounce);
-    // Rebound 1.0 at impact, then gravity and drag.
     try testing.expectApproxEqAbs(@as(f32, (1 - 0.08) * 0.98), s.vel.y, 1e-6);
     var b: State = .{ .pos = .init(4.5, 0.2, 0.5), .vel = .init(0, -1, 0) };
     r = f.sim.tick(&b, &.{});
     try testing.expectApproxEqAbs(@as(f32, (0.75 - 0.08) * 0.98), b.vel.y, 1e-6);
-    // Sneaking cancels the bounce.
     var n: State = .{ .pos = .init(0.5, 0.2, 0.5), .vel = .init(0, -1, 0), .sneaking = true };
     _ = f.sim.tick(&n, &.{ .flags = .{ .sneak_down = true } });
     try testing.expect(n.vel.y <= 0);
@@ -319,8 +310,6 @@ test "hardened policy bounds a latched swim flag" {
     f.init(.hardened);
     var s: State = .{ .pos = .init(0.5, 50, 0.5), .swimming = true };
     for (0..30) |_| _ = f.sim.tick(&s, &.{});
-    // Without water contact the swim flag grants neither zero gravity nor
-    // the collapsed hitbox.
     try testing.expect(!s.swimPose());
     try testing.expect(s.vel.y < -0.5);
 }
@@ -574,7 +563,6 @@ test "trace records stages" {
 }
 
 test "constants match the Go reference bit patterns" {
-    // Bits printed by BedSim's Go constants on amd64.
     const liquid = @import("liquid.zig");
     try testing.expectEqual(@as(u32, 0x3dfae147), @as(u32, @bitCast(Simulator.max_consuming_impulse)));
     try testing.expectEqual(@as(u32, 0x3c8efa35), @as(u32, @bitCast(Simulator.deg_to_rad)));
@@ -583,10 +571,7 @@ test "constants match the Go reference bit patterns" {
     try testing.expectEqual(@as(u32, 0xbf1170a4), @as(u32, @bitCast(Simulator.edge_drop)));
 }
 
-// Contact rounding, ported from BedSim's bbox tests.
-
 test "captured BDS wall contacts" {
-    // Positions recorded from a real BDS session (BedSim bbox_test.go).
     const cases = [_]struct { pos: Vec3, wall: AABB, vel: Vec3, axis: math.Axis, want: f32 }{
         .{ .pos = .init(186.61009, -59.580002, 4.5), .wall = .init(187, -61, 3, 188, -59, 6), .vel = .init(0.28, 0, 0), .axis = .x, .want = 186.7 },
         .{ .pos = .init(26.5, -59, 5.611176), .wall = .init(24, -60, 6, 29, -58, 7), .vel = .init(0, 0, 0.2584), .axis = .z, .want = 5.7 },
@@ -611,8 +596,6 @@ test "contact epsilon does not shrink sweeps" {
     }
 }
 
-/// Floor at y = 0 and a wall face at +-256 on `axis`, with the player at
-/// +-256.3 so its rounded box minimum lands inside the wall.
 fn roundedContactWorld(map: *MapWorld, axis: math.Axis, sign: f32) !State {
     const stone: Block = .full(.default);
     const lo: i32 = if (sign > 0) 249 else -256;
@@ -643,7 +626,6 @@ test "rounded contact seeds stay flush across re-anchoring" {
         var s = try roundedContactWorld(&map, axis, sign);
         var sim: Simulator = .init(map.world(), .{ .policy = .vanilla });
         for (0..3) |_| {
-            // The server adopts a new rounded client centre each tick.
             var p = s.pos;
             p.set(other(axis), p.get(other(axis)) + 0.01);
             s.setPosition(p);
@@ -736,8 +718,6 @@ test "rounded contact recovery does not erase new obstacles" {
     const r = sim.tick(&s, &.{ .reported_pos = s.pos });
     try testing.expect(r.collide_x and s.penetrated_last_frame);
 }
-
-// Property tests over random worlds and chaotic input.
 
 const shapes = [_][]const AABB{
     &.{AABB.unit},

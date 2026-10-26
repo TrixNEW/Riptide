@@ -1,16 +1,9 @@
-//! Benchmarks. Run with `zig build bench -Doptimize=ReleaseFast`.
-//!
-//! Workloads run on a dense chunk-like grid world. `fixtures` replays the
-//! differential fixtures on the hash-map world, matching tools/oracle's Go
-//! benchmark workload for a like-for-like comparison.
-
 const std = @import("std");
 const rt = @import("riptide");
 const fixture = @import("fixture");
 
 const Io = std.Io;
 
-/// Dense palette-indexed block storage, similar to a loaded chunk section.
 const GridWorld = struct {
     const sx = 96;
     const sy = 48;
@@ -138,7 +131,6 @@ fn spawnState(w: Workload, rng: std.Random) rt.State {
     return s;
 }
 
-/// Players turn steadily so they circle within the loaded area.
 fn nextInput(w: Workload, rng: std.Random, tick: u32, in: *rt.Input) void {
     in.rotation.yaw += 4 + rng.float(f32) * 4;
     in.rotation.pitch = std.math.clamp(in.rotation.pitch + rng.float(f32) * 6 - 3, -60, 60);
@@ -186,7 +178,6 @@ fn benchWorkload(io: Io, w: Workload, out: *Io.Writer) !void {
         var states: [players]rt.State = undefined;
         var inputs: [players]rt.Input = @splat(.{});
         for (&states) |*s| s.* = spawnState(w, prng.random());
-        // Inputs are generated outside the timed region.
         const script = try std.heap.page_allocator.alloc(rt.Input, players * ticks_per_player);
         defer std.heap.page_allocator.free(script);
         for (0..ticks_per_player) |t| for (0..players) |p| {
@@ -258,7 +249,6 @@ fn playerThread(shared: *const Shared, normal: *u64) void {
     normal.* = n;
 }
 
-/// Read-only grid view shared by every thread, so lookups are not counted.
 const SharedGrid = struct {
     fn lookup(ptr: *anyopaque, pos: rt.BlockPos) ?rt.Block {
         const g: *const GridWorld = @ptrCast(@alignCast(ptr));

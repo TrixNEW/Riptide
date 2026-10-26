@@ -1,9 +1,3 @@
-//! Bedrock player movement simulator.
-//!
-//! A `Simulator` holds configuration, the world view, and scratch memory.
-//! It never allocates. Use one per thread; any number of `State`s can be
-//! advanced through it.
-
 const std = @import("std");
 const math = @import("math.zig");
 const aabb_mod = @import("aabb.zig");
@@ -34,7 +28,6 @@ const Simulator = @This();
 
 world: World,
 config: Config,
-/// Optional stage trace. Null in production.
 trace: ?*Trace = null,
 scratch: Scratch = .{},
 cache: BlockCache = .{},
@@ -56,9 +49,7 @@ pub const Scratch = struct {
     lava_len: usize = 0,
 };
 
-/// Direct-mapped cache of world lookups. A tick probes most cells several
-/// times; entries are valid only within one simulator call because the world
-/// may change between calls.
+// Entries live for one simulator call because the world may change between calls.
 pub const BlockCache = struct {
     const bits = 7;
     const size = 1 << bits;
@@ -102,10 +93,6 @@ pub inline fn note(sim: *Simulator, stage: Stage, state: *const State) void {
     if (sim.trace) |t| t.record(stage, state.pos, state.vel, state.on_ground);
 }
 
-// ---------------------------------------------------------------- lifecycle
-
-/// Advances `state` by one client tick. On any non-`normal` outcome the
-/// state is left consistent and safe to keep using.
 pub fn tick(sim: *Simulator, state: *State, input: *const Input) Result {
     sim.mech = .{};
     sim.cache.invalidate();
@@ -142,8 +129,6 @@ pub fn tick(sim: *Simulator, state: *State, input: *const Input) Result {
         tickTimers(state);
     }
     if (!(state.pos.isFinite() and state.vel.isFinite() and state.mov.isFinite() and std.math.isFinite(state.fall_distance))) {
-        // Only reachable with extreme but finite values, such as a motion
-        // that overflows the position.
         state.* = before;
         state.vel = .zero;
         state.pending_motion = null;
@@ -183,7 +168,6 @@ fn result(sim: *Simulator, state: *const State, outcome: Outcome, move: Vec2) Re
     };
 }
 
-/// Pose fields restored when the world could not be observed.
 const PoseSnapshot = struct {
     shape: state_mod.CollisionShape,
     size: state_mod.Size,
@@ -230,8 +214,6 @@ fn simulateCore(sim: *Simulator, state: *State) Outcome {
     };
 
     if (sim.attemptTeleport(state)) {
-        // A teleport does not observe the destination, so retained water
-        // contact from the origin is void.
         sim.clearSwimEvidence(state);
         state.stuck_speed = .zero;
         return .teleport;
@@ -251,7 +233,6 @@ fn simulateCore(sim: *Simulator, state: *State) Outcome {
     sim.prepareCollisionBox(state);
     if (state.immobile or !state.ready) {
         state.vel = .zero;
-        // Frozen ticks observe nothing, so retained contact must not resume.
         sim.clearSwimEvidence(state);
         state.stuck_speed = .zero;
         return .immobile;
@@ -268,8 +249,6 @@ fn simulateCore(sim: *Simulator, state: *State) Outcome {
         state.stuck_speed = .zero;
         return failureOutcome(e);
     };
-    // The last Riptide tick becomes upright when the timer expires. Validate
-    // that resize before committing movement.
     if (state.riptide_ticks == 1 and !state.gliding and !state.swimPose()) {
         sim.restoreUprightPose(state) catch |e| {
             state.* = before;
@@ -289,7 +268,6 @@ fn simulationReliable(state: *const State) bool {
 }
 
 fn resetToReported(sim: *Simulator, state: *State) void {
-    // A frame we did not simulate proves nothing about water contact.
     sim.clearSwimEvidence(state);
     state.stuck_speed = .zero;
     state.pos = state.reported.pos;
@@ -337,16 +315,11 @@ fn attemptTeleport(sim: *Simulator, state: *State) bool {
     return true;
 }
 
-// -------------------------------------------------------------------- input
-
 const Prepared = struct {
-    /// `normal` when the pose world was observable.
     failure: Outcome,
     move: Vec2,
 };
 
-/// Pose queries during input processing. Failures are remembered rather
-/// than propagated, matching the client's input handling.
 const PoseQuery = struct {
     sim: *Simulator,
     state: *State,
@@ -458,8 +431,6 @@ fn applyInput(sim: *Simulator, state: *State, input: *const Input) Prepared {
     state.want_down = f.want_down;
     state.want_down_slow = f.want_down_slow;
 
-    // Raw controls get the client's slowdown. Processed vectors are bounded
-    // by the slowdown they should already carry.
     var item_modifier: f32 = 1;
     if (input.item_use_modifier) |m| {
         item_modifier = m;
@@ -469,8 +440,6 @@ fn applyInput(sim: *Simulator, state: *State, input: *const Input) Prepared {
     const pose_modifier = sneakModifier(state, input);
     var move: Vec2 = undefined;
     if (input.move_is_raw) {
-        // Normalise onto the unit circle, then round the pose and item-use
-        // products separately.
         var raw = input.move;
         const len_sqr = raw.y * raw.y + raw.x * raw.x;
         if (len_sqr > 1) {
@@ -484,7 +453,6 @@ fn applyInput(sim: *Simulator, state: *State, input: *const Input) Prepared {
     }
     if (f.inventory_action) move = .{};
 
-    // Ground jumps are edge-triggered; liquid and ladder ascent may be held.
     state.jumping = f.start_jumping;
     state.pressing_jump = f.jumping;
     state.effective_jumping = f.jumping or f.auto_jumping_in_water or f.ascend_block;
@@ -499,14 +467,11 @@ fn applyInput(sim: *Simulator, state: *State, input: *const Input) Prepared {
     } else if (f.start_gliding) {
         state.gliding = true;
     }
-    // A rocket used without gliding is consumed without thrust.
     if (state.firework_pending and state.gliding and !f.stop_gliding) {
         state.glide_boost_ticks = state_mod.glide_boost_ticks;
     }
     state.firework_pending = false;
 
-    // Keep a validated launch edge pending when an unloaded tick could not
-    // consume it.
     state.starting_spin_attack = f.start_spin_attack or (state.riptide_ready and state.starting_spin_attack);
     if (f.stop_spin_attack and state.riptide_ticks > 0 and state.riptide_collision) {
         state.riptide_ticks = 0;
@@ -521,9 +486,6 @@ fn applyInput(sim: *Simulator, state: *State, input: *const Input) Prepared {
     return .{ .failure = if (q.failure) |e| failureOutcome(e) else .normal, .move = move };
 }
 
-/// Pose slowdown for horizontal input. It applies to held sneak or descend
-/// and to the sneaking and crawling poses, but never while swimming, flying,
-/// or in water last tick.
 fn sneakModifier(state: *State, input: *const Input) f32 {
     const f = input.flags;
     const slowed = state.sneaking or state.crawling or f.sneak_down or f.descend_block;
@@ -540,9 +502,6 @@ fn sneakModifier(state: *State, input: *const Input) f32 {
     return math.clamp(multiplier, 0, 1);
 }
 
-/// Sprint edge handling. Before movement it also adopts server sprint
-/// metadata. Legacy clients change the movement attribute only after
-/// movement (`late`).
 fn applySprint(state: *State, input: *const Input, late: bool, adjust_speed: bool) void {
     const f = input.flags;
     var adjust = false;
@@ -566,8 +525,6 @@ fn applySprint(state: *State, input: *const Input, late: bool, adjust_speed: boo
     }
 }
 
-/// Vanilla selects air acceleration from the sprint flag alone; movement
-/// effects do not reach it.
 fn airSpeed(state: *const State) f32 {
     return if (state.sprinting) state_mod.sprint_air_speed else state_mod.walk_air_speed;
 }
@@ -577,8 +534,6 @@ fn setSwimmingPose(state: *State) void {
     state.crawling = false;
     state.size.height = state.size.standing_height;
 }
-
-// ------------------------------------------------------------- swim policy
 
 fn graceBound(sim: *const Simulator) u16 {
     return switch (sim.config.policy.swim_grace) {
@@ -591,8 +546,6 @@ pub fn clearSwimEvidence(sim: *const Simulator, state: *State) void {
     state.swim_water_contact = false;
     state.swim_grace_ticks = if (sim.config.policy.swim_grace == .trust_client) swim_trusted else 0;
 }
-
-// ------------------------------------------------------------------ travel
 
 fn simulateMovement(sim: *Simulator, state: *State) Error!void {
     state.descend_through_block = false;
@@ -632,7 +585,6 @@ fn simulateMovement(sim: *Simulator, state: *State) Error!void {
 fn travel(sim: *Simulator, state: *State, in_water: bool, in_lava: bool) Error!void {
     if (!state.flying) try contact.attemptRiptide(sim, state, in_water);
 
-    // Observed lava takes precedence over retained water evidence.
     const water_travel = in_water or (state.swimming and state.swim_grace_ticks > 0 and !in_lava);
     if (!state.flying and (water_travel or in_lava)) {
         if (!in_water and water_travel and sim.config.policy.swim_grace != .trust_client) sim.mech.swim_grace = true;
@@ -662,8 +614,7 @@ fn travel(sim: *Simulator, state: *State, in_water: bool, in_lava: bool) Error!v
         var accel_mul = ground.accel_friction_mul;
         if (state.equipment.soul_speed > 0 and ground.soul_speed_affected) accel_mul = 1;
         const accel_friction = (ground.friction * accel_mul) * air_drag;
-        // Keep the native operation order. Dividing a precomputed cube by
-        // friction cubed rounds differently, even on grass.
+        // Native operation order. A precomputed cube rounds differently.
         const base_friction: f32 = air_drag * default_friction;
         const ratio = base_friction / accel_friction;
         accel_speed = ((state.movement_speed * ratio) * ratio) * ratio;
@@ -717,7 +668,6 @@ fn travel(sim: *Simulator, state: *State, in_water: bool, in_lava: bool) Error!v
 
     state.mov = state.vel;
     if (edge.clipped) {
-        // Edge clipping shortens only this tick's displacement.
         state.vel.x = edge.retained.x;
         state.vel.z = edge.retained.z;
     }
@@ -731,7 +681,6 @@ fn travel(sim: *Simulator, state: *State, in_water: bool, in_lava: bool) Error!v
 
     var v = state.vel;
     if (scaffold_descend) {
-        // Descending through scaffolding suppresses gravity but keeps drag.
         if (state.has_gravity) v.y *= vertical_drag;
     } else if (!auto_climb) {
         if (state.effects.levitation) |amp| {
@@ -771,7 +720,6 @@ fn glideTick(sim: *Simulator, state: *State) Error!void {
     sim.note(.inside_blocks, state);
 }
 
-/// Replaces velocity with a pending authoritative motion.
 fn applyMotion(sim: *Simulator, state: *State) void {
     if (state.pending_motion) |m| {
         state.vel = m;
@@ -787,8 +735,7 @@ pub fn moveRelative(state: *State, speed: f32) void {
         force = speed / @max(@sqrt(force), 1.0);
         const mf = imp.y * force;
         const ms = imp.x * force;
-        // DefaultMoveSystems::horizontalMovement uses sincosf rather than
-        // the lookup table.
+        // horizontalMovement uses sincosf, not the lookup table.
         const yaw = state.rotation.yaw * deg_to_rad;
         const s = math.sinf(yaw);
         const c = math.cosf(yaw);
@@ -802,7 +749,6 @@ fn effectiveGravity(state: *const State, vel: Vec3) f32 {
     return state.gravity;
 }
 
-/// Horizontal drag, clearing components at or below float epsilon first.
 fn dampHorizontal(v: f32, drag: f32) f32 {
     if (@abs(v) <= math.float_epsilon) return 0;
     return v * drag;
@@ -818,7 +764,6 @@ fn updateFallDistance(state: *State, old_y: f32) void {
     if (state.on_ground and state.fall_distance > 0) state.fall_distance = 0;
 }
 
-/// Applies and clears the queued stuck-speed multiplier.
 pub fn applyStuckSpeed(state: *State) bool {
     const m = state.stuck_speed;
     if (m.lenSqr() <= 1e-7) return false;
@@ -837,7 +782,6 @@ fn attemptJump(sim: *Simulator, state: *State) Error!bool {
     return true;
 }
 
-/// Velocity change of an accepted jump. `yaw` is in degrees.
 pub fn jumpImpulse(vel: Vec3, height: f32, yaw: f32, sprinting: bool) Vec3 {
     var v = vel;
     v.y = @max(height, v.y);
@@ -854,8 +798,6 @@ const glide_fall_threshold: f32 = -0.5;
 fn simulateGlide(state: *State) void {
     if (state.vel.y > glide_fall_threshold) state.fall_distance = 1;
 
-    // The look vector uses the previous rotation plus the wrapped delta,
-    // with pitch negated before the table lookup.
     const pi: f32 = std.math.pi;
     const yaw = math.wrappedAngle(state.last_rotation.yaw, state.rotation.yaw);
     const look_pitch = math.wrappedAngle(state.last_rotation.pitch, state.rotation.pitch) * -deg_to_rad;
@@ -904,16 +846,12 @@ fn simulateGlide(state: *State) void {
     state.vel = v;
 }
 
-/// Clears blocked axes. A downward landing may rebound.
 fn setPostCollisionMotion(sim: *Simulator, state: *State, old_vel: Vec3, landed: ?Block) Error!void {
     if (state.collide_y) state.vel.y = contact.restitution(sim, state, old_vel.y, landed);
     if (state.collide_x) state.vel.x = 0;
     if (state.collide_z) state.vel.z = 0;
 }
 
-// ------------------------------------------------------------------- poses
-
-/// Chooses standing, sneaking, or crawling without entering a ceiling.
 pub fn restoreUprightPose(sim: *Simulator, state: *State) Error!void {
     sim.mech.pose_change = true;
     const sz = &state.size;
@@ -946,7 +884,6 @@ pub fn stopRiptideOnBlockCollision(sim: *Simulator, state: *State) Error!void {
     }
 }
 
-/// Whether an upright box of `height` at the current position is free.
 fn canFitHeight(sim: *Simulator, state: *const State, height: f32) Error!bool {
     const scale = state.size.scale;
     const half = (state.size.width * 0.5) * scale;
@@ -964,8 +901,6 @@ fn canFitHeight(sim: *Simulator, state: *const State, height: f32) Error!bool {
     ctx.descend_through_block = false;
     return !(try sim.anyCollision(box, &ctx));
 }
-
-// --------------------------------------------------------------- collision
 
 pub fn collisionContext(sim: *const Simulator, state: *const State) CollisionContext {
     _ = sim;
@@ -988,8 +923,6 @@ pub const CellRange = struct {
     z1: i32,
 };
 
-/// Validates a query box and converts it to an inclusive cell range,
-/// widening the bottom by `below` cells.
 pub fn cellRange(sim: *const Simulator, q: AABB, below: i32, inclusive_ceil: bool) Error!CellRange {
     if (!q.isFinite()) return error.QueryLimit;
     inline for (.{ q.min.x, q.min.y, q.min.z, q.max.x, q.max.y, q.max.z }) |v| {
@@ -1021,7 +954,6 @@ pub inline fn block(sim: *Simulator, pos: BlockPos) Error!Block {
     return b;
 }
 
-/// Ensures every cell overlapped by `q` is loaded.
 pub fn areaKnown(sim: *Simulator, q: AABB) Error!void {
     var r = try sim.cellRange(q, 0, true);
     r.x1 = @max(r.x0, r.x1 -| 1);
@@ -1037,7 +969,6 @@ pub fn areaKnown(sim: *Simulator, q: AABB) Error!void {
     }
 }
 
-/// Collision boxes of a block in local space, resolving dynamic shapes.
 pub fn cellShape(sim: *Simulator, pos: BlockPos, b: *const Block, ctx: *const CollisionContext) []const AABB {
     if (b.dynamic_shape) {
         if (sim.world.vtable.dynamic_shape) |resolve| {
@@ -1050,8 +981,6 @@ pub fn cellShape(sim: *Simulator, pos: BlockPos, b: *const Block, ctx: *const Co
     return b.shape;
 }
 
-/// Visits world-space collision boxes intersecting `q` in vanilla gathering
-/// order. Returns true if the visitor stopped the scan.
 fn scanBoxes(sim: *Simulator, q: AABB, ctx: *const CollisionContext, visitor: anytype) Error!bool {
     const r = try sim.cellRange(q, 1, false);
     var x = r.x0;
@@ -1084,8 +1013,6 @@ pub fn anyCollision(sim: *Simulator, q: AABB, ctx: *const CollisionContext) Erro
     return sim.scanBoxes(q, ctx, Any{});
 }
 
-/// Gathers colliding boxes into scratch memory. The result is valid until
-/// the next gather.
 pub fn gatherBoxes(sim: *Simulator, q: AABB, ctx: *const CollisionContext) Error![]const AABB {
     const Gather = struct {
         s: *Scratch,
@@ -1102,8 +1029,6 @@ pub fn gatherBoxes(sim: *Simulator, q: AABB, ctx: *const CollisionContext) Error
     return sim.scratch.boxes[0..sim.scratch.len];
 }
 
-/// Recovers contact endpoints for an externally anchored position once the
-/// area is loaded. Known sweeps and native pose changes keep their geometry.
 fn prepareCollisionBox(sim: *Simulator, state: *State) void {
     const shape = state.shape;
     const d = state.dimensions();
@@ -1111,7 +1036,6 @@ fn prepareCollisionBox(sim: *Simulator, state: *State) void {
     if (shape.valid and same and shape.pos.eql(state.pos)) return;
     const box = state.boxAt(state.pos);
     if (shape.valid and !same) {
-        // Native resizing rebuilds all endpoints.
         state.rememberBox(box);
         return;
     }
@@ -1121,9 +1045,6 @@ fn prepareCollisionBox(sim: *Simulator, state: *State) void {
     state.rememberBox(recoverRoundedContacts(box, state.pos, boxes));
 }
 
-/// Restores horizontal contact faces only when the box's f32 centre still
-/// equals the supplied position. Combined faces are checked again so the
-/// result does not depend on box order.
 pub fn recoverRoundedContacts(box: AABB, pos: Vec3, boxes: []const AABB) AABB {
     var low = box.min;
     var high = box.max;
@@ -1150,8 +1071,6 @@ pub fn recoverRoundedContacts(box: AABB, pos: Vec3, boxes: []const AABB) AABB {
 
 const StepResult = struct { box: AABB, vel: Vec3 };
 
-/// The client's auto-step sweep over boxes that start below the original
-/// box top.
 fn calculateAutoStep(original: AABB, vel: Vec3, boxes: []const AABB, one_way: bool) StepResult {
     var up: Vec3 = .init(0, step_height, 0);
     var xv: Vec3 = .init(vel.x, 0, 0);
@@ -1189,8 +1108,6 @@ fn clip(stationary: AABB, moving: AABB, vel: Vec3, one_way: bool, penetration: ?
     return if (one_way) c.clipped else c.depenetrating;
 }
 
-/// Resolves this tick's displacement against the world. Returns the boxes
-/// the move considered, valid until the next gather.
 pub fn moveWithCollisions(sim: *Simulator, state: *State) Error![]const AABB {
     var bb = state.boundingBox();
     const original = bb;
@@ -1227,7 +1144,6 @@ pub fn moveWithCollisions(sim: *Simulator, state: *State) Error![]const AABB {
         const step = calculateAutoStep(original, cur, boxes, one_way);
         if (!(try sim.anyCollision(step.box, &ctx)) and math.hzLenSqr(vel) < math.hzLenSqr(step.vel)) {
             const accept = if (sim.config.policy.step_client_tiebreak) |threshold| blk: {
-                // Server reconciliation policy, not vanilla movement.
                 const step_dist = step.box.bottomCenter().sub(state.reported.pos).len();
                 const plain_dist = bb.bottomCenter().sub(state.reported.pos).len();
                 break :blk plain_dist > threshold or step_dist <= plain_dist;
@@ -1250,16 +1166,12 @@ pub fn moveWithCollisions(sim: *Simulator, state: *State) Error![]const AABB {
     state.collide_x = @abs(cur.x - vel.x) > math.float_epsilon;
     state.collide_y = y_hit;
     state.collide_z = @abs(cur.z - vel.z) > math.float_epsilon;
-    // Ground contact follows the requested vertical movement, including
-    // after a step: a step taken mid-jump stays airborne for a tick.
     state.on_ground = (y_hit and cur.y < 0) or (state.on_ground and !y_hit and cur.y == 0);
     try contact.updateSupportingBlock(sim, state, cur);
     state.vel = vel;
     return sim.scratch.boxes[0..sim.scratch.len];
 }
 
-/// Vanilla's stalled dominant-axis check. `actual` is the displacement the
-/// request produced.
 pub fn sprintMovementBlocked(requested: Vec3, actual: Vec3) bool {
     const min_movement: f32 = 0.00005;
     const x = @abs(requested.x);
@@ -1271,7 +1183,6 @@ pub const edge_drop: f32 = -step_height * @as(f32, 1.01);
 
 const EdgeResult = struct { retained: Vec3 = .zero, clipped: bool = false };
 
-/// Clips a grounded sneaking move to supported ground.
 fn avoidEdge(sim: *Simulator, state: *State) Error!EdgeResult {
     if (!state.sneaking or !state.on_ground) return .{};
     sim.mech.sneak_edge = true;
@@ -1301,7 +1212,6 @@ fn avoidEdge(sim: *Simulator, state: *State) Error!EdgeResult {
         zm = 0;
     }
 
-    // Velocity survives the clip unless an axis is clipped to rest.
     var retained = old;
     if (@abs(xm) <= math.float_epsilon) retained.x = 0;
     if (@abs(zm) <= math.float_epsilon) retained.z = 0;

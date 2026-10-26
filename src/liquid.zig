@@ -1,5 +1,3 @@
-//! Water and lava: contact, flow currents, swimming, and liquid travel.
-
 const std = @import("std");
 const math = @import("math.zig");
 const world_mod = @import("world.zig");
@@ -16,7 +14,6 @@ const State = state_mod.State;
 const Error = Simulator.Error;
 const cellAt = contact.cellAt;
 
-/// Liquid at a cell in either block layer.
 pub fn liquidAt(sim: *Simulator, pos: BlockPos) Error!?Liquid {
     return (try sim.block(pos)).liquid;
 }
@@ -38,7 +35,6 @@ fn shrink(box: AABB, d: Vec3) AABB {
     return r;
 }
 
-/// Records the water and lava cells the contact box reaches.
 pub fn collectTouching(sim: *Simulator, state: *const State) Error!void {
     const box = state.boundingBox();
     sim.scratch.water_len = try touching(sim, shrink(box, .init(0.001, 0.401, 0.001)), .water, &sim.scratch.water);
@@ -112,7 +108,6 @@ fn faceClosed(sim: *Simulator, pos: BlockPos, f: Face) Error!bool {
     };
 }
 
-/// Adds the summed, normalised current of the touched cells.
 pub fn applyFlow(sim: *Simulator, state: *State, cells: []const BlockPos, kind: LiquidKind) Error!void {
     if (cells.len == 0) return;
     var flow: Vec3 = .zero;
@@ -185,8 +180,6 @@ fn updateSwimTravel(sim: *Simulator, state: *State) Error!void {
     state.vel.y += (target - state.vel.y) * rate;
 }
 
-/// Water acceleration and the Depth Strider level used for drag. Each
-/// product rounds, and the maximum level divides last.
 fn waterSpeed(base: f32, ground_speed: f32, depth_strider: f32, swim_multiplier: f32, on_ground: bool) struct { speed: f32, depth_strider: f32 } {
     if (swim_multiplier > 1) return .{ .speed = base * swim_multiplier * (depth_strider / 3 * 0.3 + 0.7), .depth_strider = depth_strider };
     if (depth_strider <= 0) return .{ .speed = base, .depth_strider = depth_strider };
@@ -202,7 +195,6 @@ fn gravity(swimming: bool, water: bool) f32 {
 pub fn travel(sim: *Simulator, state: *State, kind: LiquidKind, touching_liquid: bool) Error!void {
     const initial_y = state.pos.y;
     const water = kind == .water;
-    // Captured before swim steering, as the client does.
     const jumping = state.effective_jumping;
     if (water) {
         if (state.want_down or state.want_down_slow or state.pressing_descend) state.vel.y -= 0.04;
@@ -236,7 +228,6 @@ pub fn travel(sim: *Simulator, state: *State, kind: LiquidKind, touching_liquid:
         state.mov = state.vel;
         state.vel = .zero;
     }
-    // Liquid landings never rebound.
     if (state.collide_y) state.vel.y = 0;
     if (state.collide_x) state.vel.x = 0;
     if (state.collide_z) state.vel.z = 0;
@@ -260,7 +251,6 @@ pub fn travel(sim: *Simulator, state: *State, kind: LiquidKind, touching_liquid:
     }
 
     if (state.collide_x or state.collide_z) {
-        // Exit boost over a ledge when the raised box is free and dry.
         const raised: Vec3 = .init(v.x, v.y + 0.6 + initial_y - state.pos.y, v.z);
         const box = state.boundingBox().translate(raised);
         const ctx = sim.collisionContext(state);
@@ -278,8 +268,6 @@ pub const HeadLiquid = struct {
     lava: bool = false,
 };
 
-/// Liquid at the continuous eye position, compared with the partial
-/// surface height of its cell.
 pub fn headLiquid(sim: *Simulator, state: *const State) Error!HeadLiquid {
     const eye = state.eyePosition();
     var out: HeadLiquid = .{ .position = eye };

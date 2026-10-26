@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
     const bench = b.addExecutable(.{
         .name = "riptide-bench",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("bench/bench.zig"),
+            .root_source_file = b.path("tests/bench/bench.zig"),
             .target = target,
             .optimize = if (optimize == .debug) .fast else optimize,
             .imports = &.{
@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) void {
     const example = b.addExecutable(.{
         .name = "riptide-example",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/basic.zig"),
+            .root_source_file = b.path("docs/examples/basic.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{.{ .name = "riptide", .module = mod }},

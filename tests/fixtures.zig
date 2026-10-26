@@ -1,5 +1,3 @@
-//! Differential fixtures: every compared value must match BedSim bit for bit.
-
 const std = @import("std");
 const fixture = @import("fixture.zig");
 
@@ -14,7 +12,6 @@ test "bedsim differential fixtures" {
         defer scratch.deinit();
         if (!try fixture.runScenario(sc, scratch.allocator(), true)) failed += 1;
     }
-    // Every mechanic the fixtures claim to cover must actually occur.
     inline for (fixture.mechanic_names, 0..) |name, i| {
         // Arming a boost and retaining swim contact have no BedSim equivalent.
         const optional = comptime std.mem.eql(u8, name, "_pad") or

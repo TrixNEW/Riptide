@@ -1,5 +1,3 @@
-//! C interface. See include/riptide.h for the contract.
-
 const std = @import("std");
 const rt = @import("root.zig");
 
@@ -152,8 +150,6 @@ fn lookup(ptr: *anyopaque, pos: rt.BlockPos) ?rt.Block {
     return convert(&b);
 }
 
-/// Converts a C block. Malformed values produce semantics the simulator
-/// rejects as `invalid_world`.
 fn convert(b: *const Block) rt.Block {
     if (b.kind > 2 or b.bounce > 2 or b.inside > 2 or b.traversal > 2 or b.liquid > 2 or
         b.liquid_level > 7 or b.bubble > 2 or b.bubble_surface < -1 or b.bubble_surface > 1) return invalid;

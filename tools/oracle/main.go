@@ -1,5 +1,3 @@
-// Command oracle runs Riptide's fixture scenarios through BedSim and records
-// the per-tick results as JSON fixtures for the Zig differential tests.
 package main
 
 import (
@@ -25,7 +23,6 @@ import (
 
 const evidence = "bedsim 9c12b344 + tools/oracle/oracle.patch"
 
-// F32 marshals as the shortest decimal that round-trips to the same float32.
 type F32 float32
 
 func (f F32) MarshalJSON() ([]byte, error) {
@@ -62,7 +59,6 @@ type LiquidSpec struct {
 	Falling bool   `json:"falling,omitempty"`
 }
 
-// BlockSpec describes one block state. Kind is "block", "liquid" or "air".
 type BlockSpec struct {
 	Kind          string      `json:"kind"`
 	Boxes         [][6]F32    `json:"boxes,omitempty"`
@@ -72,12 +68,9 @@ type BlockSpec struct {
 	Barrier       bool        `json:"barrier,omitempty"`
 	Bubble        string      `json:"bubble,omitempty"`
 	BubbleSurface *bool       `json:"bubble_surface,omitempty"`
-	// Dynamic "scaffold" keeps only the top slab, and only while the player
-	// stands at or above it without descending through.
-	Dynamic string `json:"dynamic,omitempty"`
+	Dynamic       string      `json:"dynamic,omitempty"`
 }
 
-// Fill sets every cell in the inclusive box to Block. Later fills win.
 type Fill struct {
 	From  [3]int32  `json:"from"`
 	To    [3]int32  `json:"to"`
@@ -134,7 +127,6 @@ type InputSpec struct {
 	RiptideReady bool          `json:"riptide_ready,omitempty"`
 }
 
-// Expect omits default values: outcome "normal", false, and zero.
 type Expect struct {
 	Outcome   string `json:"outcome,omitempty"`
 	Pos       Vec    `json:"pos"`
@@ -176,7 +168,6 @@ type Scenario struct {
 	Expected     []Expect    `json:"expected"`
 }
 
-// fixtureBlock is a registry-free stand-in for a non-liquid block.
 type fixtureBlock struct{ id int }
 
 func (b fixtureBlock) EncodeBlock() (string, map[string]any) {
@@ -262,8 +253,7 @@ func (w *fixtureWorld) BlockCollisions(pos cube.Pos) []cube.BBox32 {
 	return out
 }
 
-// GetNearbyBBoxes gathers in Riptide's order: x, then z, then y, with one
-// extra layer below for shapes taller than a block.
+// Gathers in Riptide's order with one extra layer below for tall shapes.
 func (w *fixtureWorld) GetNearbyBBoxes(aabb cube.BBox32) []cube.BBox32 {
 	min, max := aabb.Min(), aabb.Max()
 	x0, x1 := int(math.Floor(float64(min[0]))), int(math.Floor(float64(max[0])))
@@ -577,8 +567,6 @@ func run(sc *Scenario) error {
 	return nil
 }
 
-// benchmark replays every scenario like Riptide's "fixtures" benchmark:
-// worlds and inputs are prepared up front and only ticks are timed.
 func benchmark(scenarios []Scenario) {
 	type prepared struct {
 		sim    *bedsim.Simulator

@@ -1,8 +1,3 @@
-//! Optional per-stage physics trace for debugging divergences.
-//!
-//! Tracing is off unless `Simulator.trace` points at a `Trace`; the
-//! disabled cost is one null check per stage.
-
 const std = @import("std");
 const Vec3 = @import("math.zig").Vec3;
 
@@ -37,8 +32,6 @@ pub const Event = struct {
     on_ground: bool,
 };
 
-/// Fixed-capacity trace over a caller-owned buffer. Events past capacity
-/// are counted in `dropped`.
 pub const Trace = struct {
     events: []Event,
     len: usize = 0,

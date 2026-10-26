@@ -1,5 +1,3 @@
-/* Exercises the C interface: ABI agreement, a short walk, invalid world data,
- * and state validation. */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,11 +6,9 @@
 
 static const rt_aabb unit = {0, 0, 0, 1, 1, 1};
 
-/* Stone floor at y = -1, plus a block with an invalid enum at (5, 0, 5). */
 static int block(void *user, int32_t x, int32_t y, int32_t z, rt_block *out) {
     (void)user;
-    /* The library pre-fills friction defaults; air needs nothing else. */
-    if (y == -1) {
+        if (y == -1) {
         out->kind = RT_KIND_BLOCK;
         out->shape = &unit;
         out->shape_len = 1;
