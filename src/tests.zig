@@ -487,9 +487,12 @@ test "firework boost needs an active glide" {
     defer f.deinit();
     f.init(.vanilla);
     var s: State = .{ .pos = .init(0, 64, 0), .equipment = .{ .elytra = true } };
-    _ = f.sim.tick(&s, &.{ .flags = .{ .firework_boost = true } });
+    s.queueFireworkBoost();
+    _ = f.sim.tick(&s, &.{});
     try testing.expectEqual(@as(u8, 0), s.glide_boost_ticks);
-    const r = f.sim.tick(&s, &.{ .flags = .{ .start_gliding = true, .firework_boost = true } });
+    try testing.expect(!s.firework_pending);
+    s.queueFireworkBoost();
+    const r = f.sim.tick(&s, &.{ .flags = .{ .start_gliding = true } });
     try testing.expect(r.mechanics.glide_boost);
     try testing.expectEqual(@as(u8, 19), s.glide_boost_ticks);
     var boosted: u32 = 1;

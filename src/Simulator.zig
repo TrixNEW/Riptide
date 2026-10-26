@@ -498,10 +498,11 @@ fn applyInput(sim: *Simulator, state: *State, input: *const Input) Prepared {
     } else if (f.start_gliding) {
         state.gliding = true;
     }
-    // A validated rocket arms the boost only while the glide continues.
-    if (f.firework_boost and state.gliding and !f.stop_gliding) {
+    // A rocket used without gliding is consumed without thrust.
+    if (state.firework_pending and state.gliding and !f.stop_gliding) {
         state.glide_boost_ticks = state_mod.glide_boost_ticks;
     }
+    state.firework_pending = false;
 
     // Keep a validated launch edge pending when an unloaded tick could not
     // consume it.

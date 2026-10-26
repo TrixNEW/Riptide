@@ -146,7 +146,6 @@ fn nextInput(w: Workload, rng: std.Random, tick: u32, in: *rt.Input) void {
     in.flags = .{ .sprint_down = true, .start_sprinting = tick == 0 };
     switch (w) {
         .glide => {
-            in.flags.firework_boost = tick % 80 == 0;
             in.move = .{};
         },
         .water => in.flags.jumping = rng.uintLessThan(u8, 4) == 0,
@@ -198,6 +197,7 @@ fn benchWorkload(io: Io, w: Workload, out: *Io.Writer) !void {
         normal = 0;
         const start = now(io);
         for (0..ticks_per_player) |t| for (&states, 0..) |*s, p| {
+            if (w == .glide and t % 80 == 0) s.queueFireworkBoost();
             const r = sim.tick(s, &script[t * players + p]);
             normal += @intFromBool(r.outcome == .normal);
         };

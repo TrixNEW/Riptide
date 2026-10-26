@@ -177,6 +177,7 @@ pub const State = struct {
 
     pending_motion: ?Vec3 = null,
     teleport: ?Teleport = null,
+    firework_pending: bool = false,
 
     // Per-tick input mirrors.
     jumping: bool = false,
@@ -202,6 +203,12 @@ pub const State = struct {
     /// knockback, explosions) for the next simulated tick. The latest wins.
     pub fn queueMotion(s: *State, vel: Vec3) void {
         s.pending_motion = vel;
+    }
+
+    /// Queues a server-validated firework rocket use. It arms the 20-tick
+    /// boost on the next tick if the entity is still gliding.
+    pub fn queueFireworkBoost(s: *State) void {
+        s.firework_pending = true;
     }
 
     /// Queues an authoritative teleport. `smoothed_ticks` is zero for an
@@ -332,9 +339,7 @@ pub const Input = struct {
         inventory_action: bool = false,
         start_spin_attack: bool = false,
         stop_spin_attack: bool = false,
-        /// A server-validated firework rocket use while gliding.
-        firework_boost: bool = false,
-        _pad: u1 = 0,
+        _pad: u2 = 0,
     };
 
     pub fn isValid(i: *const Input) bool {
